@@ -1,4 +1,5 @@
-import type { Question, QuestionType } from './types'
+import type { DifficultyBand, Question, QuestionType } from './types'
+import { DIFFICULTY_BANDS } from './types'
 
 // 题目难度（0-10，数字越大越难）
 // 难度不单独手写，而是由题型基准分 + 分值/字数/材料长度/作答时长/采分点数量共同推导，
@@ -40,4 +41,23 @@ export function difficultyLabel(d: number): string {
 // 给一批题目统一补上难度
 export function withDifficulty<T extends QuestionCore>(list: T[]): (T & { difficulty: number })[] {
   return list.map((q) => ({ ...q, difficulty: calcDifficulty(q) }))
+}
+
+// 按档位 id 取难度档位；'all' 或未传表示不限
+export function findBand(id?: string): DifficultyBand | undefined {
+  if (!id || id === 'all') return undefined
+  return DIFFICULTY_BANDS.find((b) => b.id === id)
+}
+
+// 判断题目难度是否落在指定档位内
+export function inBand(difficulty: number, band?: DifficultyBand): boolean {
+  if (!band) return true
+  return difficulty >= band.min && difficulty <= band.max
+}
+
+// 按难度档位筛选题目；筛选后为空时返回原列表兜底，避免筛不到题导致无法出题
+export function filterByBand<T extends { difficulty: number }>(list: T[], band?: DifficultyBand): T[] {
+  if (!band) return list
+  const filtered = list.filter((q) => inBand(q.difficulty, band))
+  return filtered.length > 0 ? filtered : list
 }
