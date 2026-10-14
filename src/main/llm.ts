@@ -204,10 +204,11 @@ export async function generateFeedback(
     '不得因考生答案“沾边”就给出高分。所有建议必须合理、可操作。\n' +
     '点评要求（务必逐条落实）：\n' +
     '1. 先给出细分维度得分，再给结论，不得只有笼统结论；\n' +
-    '2. 逐条列举主要失分点，每条都要说清“为什么失分”：规范要求是什么、考生实际写成了什么、应该怎么写，' +
-    '并指出应写而未写的关键信息（材料中的关键数据、专有表述、层次要点）；\n' +
-    '3. 主动检查并指出硬伤：漏写关键数据、错别字或用词错误、文体/格式不符（如汇报提纲缺“总体成效—具体做法及成效—存在问题—下一步安排”层次）、' +
-    '把不同层次内容混写、语言啰嗦或作文腔；\n' +
+    '2. 主要失分点必须与实际扣分一一对应：只针对你确实扣了分的采分点（或维度）逐条列出，' +
+    '每条都要说清“为什么失分”——规范要求是什么、考生实际写成了什么、应该怎么写；' +
+    '若本题考生作答没有失分（各采分点均满分），则不要编造失分点，losses 必须返回空数组 []；\n' +
+    '3. 若存在下列硬伤并已据此扣分，需在失分点中说明其扣分原因：漏写关键数据、错别字或用词错误、文体/格式不符（如汇报提纲缺“总体成效—具体做法及成效—存在问题—下一步安排”层次）、' +
+    '把不同层次内容混写、语言啰嗦或作文腔；未据此扣分的不要列为失分点；\n' +
     '4. 最后给出该题型的答题骨架：只写“分几层、每层写什么”，必须弱化具体内容，不得照抄范文、不得复述材料原文。'
 
   const bandInfo = isEssay
@@ -232,7 +233,7 @@ export async function generateFeedback(
 
   const dimensionsSchema = `,
   "dimensions": [{"name": "维度名（必须与上面给定的维度名完全一致）", "got": 数字（该维度实得分，0 到该维度满分之间）}],
-  "losses": [{"title": "主要失分点（一句话，按轻重排序，3-5 条）", "reason": "为什么失分：规范要求是什么 + 你实际写成了什么 + 应该怎么写"}],
+  "losses": [{"title": "主要失分点（必须是实际扣了分的点，一句话，按扣分多少排序，1-5 条；无失分则为空数组 []）", "reason": "为什么失分：规范要求是什么 + 你实际写成了什么 + 应该怎么写"}],
   "skeleton": [{"part": "层级标题，如 一、基本情况", "how": "这一层该写什么（只写要素与写法，如“改革背景 + 总体成效，一句话概括”）"}]`
 
   const outputSchema = isEssay
@@ -396,6 +397,10 @@ export function applyFeedbackScore(
       scoreResult.ratio = question.score > 0 ? clamped / question.score : 0
       scoreResult.scoredBy = 'ai'
     }
+    // 没有实际失分就不要保留「主要失分点」，避免与「无扣分」自相矛盾
+    if (scoreResult.totalScore > 0 && scoreResult.score >= scoreResult.totalScore) {
+      fb.losses = undefined
+    }
     return
   }
 
@@ -416,5 +421,9 @@ export function applyFeedbackScore(
   scoreResult.hitSummary = pointResults.filter((p) => p.got > 0).map((p) => p.label)
   scoreResult.missSummary = pointResults.filter((p) => p.got < p.score).map((p) => p.label)
   scoreResult.scoredBy = 'ai'
+  // 采分点全部满分时不应再列「主要失分点」，保证与「无扣分」一致
+  if (scoreResult.totalScore > 0 && total >= scoreResult.totalScore) {
+    fb.losses = undefined
+  }
 }
 
