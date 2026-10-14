@@ -1,0 +1,70 @@
+/* 题干标记文字 */
+.markable {
+  display: inline;
+}
+.markable-editable {
+  cursor: text;
+}
+.markable mark {
+  color: inherit;
+  border-radius: 2px;
+}
+/* 作答时，悬停已有标记给出可再次点击的提示 */
+.markable-editable mark:hover {
+  outline: 1px dashed rgba(0, 0, 0, 0.25);
+}
+
+/* 标记工具条 */
+.mark-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 14px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border: 1px solid #eef2f7;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.mark-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  padding: 0;
+}
+.mark-swatch.active {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--primary);
+}
+.mark-custom {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px dashed #c3ccd9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  cursor: pointer;
+  overflow: hidden;
+}
+.mark-custom input[type='color'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+}
+.mark-bar-tip {
+  flex: 1;
+  min-width: 120px;
+}
+.mark-bar-actions {
+  display: flex;
+  gap: 8px;
+}

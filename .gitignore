@@ -1,0 +1,43 @@
+# ===== 依赖 =====
+node_modules/
+
+# ===== 构建产物 =====
+out/
+mobile-dist/
+dist/
+dist*/
+build/.icon-ico/
+android/app/build/
+android/build/
+android/.gradle/
+android/capacitor-cordova-android-plugins/
+android/app/src/main/assets/public/
+
+# ===== 打包/分发产物（不入库，改用 GitHub Release 发布）=====
+*.exe
+*.apk
+*.aab
+*.zip
+*.blockmap
+resources/
+locales/
+*.pak
+*.dll
+*.dat
+*.bin
+*.asar
+vk_swiftshader_icd.json
+LICENSE.electron.txt
+LICENSES.chromium.html
+
+# ===== 敏感文件 =====
+*.keystore
+*.jks
+android/local.properties
+.env
+.env.local
+
+# ===== 系统与日志 =====
+.DS_Store
+Thumbs.db
+*.log

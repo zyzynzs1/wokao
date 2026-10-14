@@ -1,0 +1,51 @@
+.lined-wrap {
+  width: 100%;
+}
+
+/* 作答区横格纸：每隔 --line 画一条横线 */
+.lined-paper {
+  --line: 30px;
+  position: relative;
+  background-color: #fdfcf7;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(var(--line) - 1px),
+    #e3ded0 calc(var(--line) - 1px),
+    #e3ded0 var(--line)
+  );
+}
+
+.lined-textarea {
+  display: block;
+  width: 100%;
+  min-height: calc(var(--line) * 10);
+  padding: 0 14px;
+  border: none;
+  background: transparent;
+  resize: none;
+  overflow: hidden;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: var(--line);
+  color: #1f2937;
+  caret-color: var(--primary);
+  outline: none;
+}
+.lined-textarea::placeholder {
+  color: #c0bdb0;
+}
+
+.lined-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.lined-footer.over {
+  color: var(--danger);
+}

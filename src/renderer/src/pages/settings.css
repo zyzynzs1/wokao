@@ -1,0 +1,118 @@
+.settings-page {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.settings-section {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+.settings-row {
+  display: flex;
+  gap: 16px;
+  padding: 8px 0;
+  font-size: 14px;
+  border-bottom: 1px solid #f3f4f6;
+}
+.settings-label {
+  width: 80px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.settings-hint {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+  margin-bottom: 14px;
+}
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.settings-field label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.settings-message {
+  font-size: 13px;
+  color: var(--primary);
+  margin-bottom: 12px;
+  word-break: break-all;
+}
+.settings-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* ---- AI 评分模型：服务商说明与免费领取引导 ---- */
+.settings-note {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  background: #f7f9fc;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-top: -4px;
+}
+.settings-guide {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  background: #f0f7ff;
+  border: 1px solid #d6e6fb;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.settings-guide-text {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  flex: 1;
+  min-width: 200px;
+}
+.settings-guide-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.settings-guide-link:hover {
+  text-decoration: underline;
+}
+
+/* ---- 局域网同步 ---- */
+.sync-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.sync-copy {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  color: var(--primary);
+  background: #f3f6fd;
+  border: 1px solid #dbe4f7;
+  border-radius: 6px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.sync-copy:hover {
+  background: #e8eefb;
+}
+.sync-empty {
+  color: var(--text-secondary);
+  font-size: 13px;
+}

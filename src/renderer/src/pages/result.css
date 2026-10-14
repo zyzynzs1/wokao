@@ -1,0 +1,270 @@
+.result-page {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 提高选择器优先级：避免被全局 .card 的白色背景覆盖，导致浅色文字看不清 */
+.card.result-score-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(135deg, #1e40af, #2563eb);
+  color: #fff;
+  border-radius: 14px;
+}
+.result-question-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+  line-height: 1.7;
+}
+.result-question-req {
+  font-size: 13px;
+  color: var(--primary);
+  margin-top: 8px;
+  line-height: 1.6;
+}
+.result-question-material {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+
+/* ============ 细分得分 ============ */
+.result-dims {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.result-dim {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.result-dim-name {
+  width: 76px;
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+.result-dim-bar {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: #eef2f7;
+  overflow: hidden;
+}
+.result-dim-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2563eb, #60a5fa);
+}
+.result-dim-score {
+  width: 52px;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d4ed8;
+}
+
+/* ============ 主要失分点 ============ */
+.result-losses {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+}
+.result-loss {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff7f7;
+  border: 1px solid #f6dcdc;
+}
+.result-loss-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #b42318;
+  line-height: 1.6;
+}
+.result-loss-reason {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #475467;
+  line-height: 1.7;
+}
+
+/* ============ 答题骨架 ============ */
+.result-skeleton {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.result-skeleton li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: #f6f9ff;
+  border-left: 3px solid #93b4f7;
+}
+.result-skeleton-part {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d4ed8;
+}
+.result-skeleton-how {
+  font-size: 13px;
+  color: #667085;
+  line-height: 1.7;
+}
+/* 早期记录只有旧版骨架文本时的兜底展示 */
+.result-skeleton-legacy {
+  font-size: 13px;
+  line-height: 1.9;
+  color: #475467;
+  white-space: pre-wrap;
+}
+.result-question-material-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.result-question-material-body {
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.9;
+  white-space: pre-wrap;
+}
+.result-score-main {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+.result-score-num {
+  font-size: 42px;
+  font-weight: 700;
+  color: #ffd166;
+}
+.result-score-total {
+  font-size: 18px;
+  font-weight: 400;
+  color: #e0e7ff;
+}
+.result-score-ratio {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffd166;
+}
+.result-score-info {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.result-score-info .tag {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+.result-score-meta {
+  font-size: 13px;
+  color: #dbeafe;
+}
+.result-over {
+  font-size: 13px;
+  color: #fde68a;
+}
+
+.result-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.result-section-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.result-empty {
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 8px 0;
+}
+.result-points {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.result-point {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.result-point.hit {
+  background: var(--success-bg);
+  color: #166534;
+}
+.result-point.miss {
+  background: var(--danger-bg);
+  color: #991b1b;
+}
+.result-point-score {
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.result-feedback {
+  font-size: 14px;
+  line-height: 1.8;
+  color: #374151;
+  white-space: pre-wrap;
+}
+.result-suggestions {
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.result-suggestions li {
+  font-size: 14px;
+  color: #374151;
+}
+.result-model-answer,
+.result-my-answer {
+  font-size: 14px;
+  line-height: 1.9;
+  color: #374151;
+  white-space: pre-wrap;
+  background: #fafaf7;
+  border: 1px solid #eef0f2;
+  border-radius: 8px;
+  padding: 14px 16px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.result-my-answer {
+  background: #f5f8ff;
+}
+
+.result-actions {
+  display: flex;
+  gap: 12px;
+  padding-bottom: 20px;
+}

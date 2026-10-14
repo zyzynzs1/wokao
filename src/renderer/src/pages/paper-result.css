@@ -1,0 +1,91 @@
+.paper-result {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 提高选择器优先级：避免被全局 .card 的白色背景覆盖，导致浅色文字看不清 */
+.card.paper-result-head {
+  text-align: center;
+  background: linear-gradient(135deg, #1e40af, #2563eb);
+  color: #fff;
+  border-radius: 14px;
+  padding: 28px;
+}
+.paper-result-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.paper-result-score {
+  font-size: 40px;
+  font-weight: 700;
+}
+.paper-result-total {
+  font-size: 18px;
+  font-weight: 400;
+  color: #dbeafe;
+}
+.paper-result-ratio {
+  color: #dbeafe;
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+.paper-result-section {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.paper-result-list {
+  display: flex;
+  flex-direction: column;
+}
+.paper-result-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 6px;
+  border-bottom: 1px solid #f3f4f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.paper-result-row:hover {
+  background: #f9fafb;
+}
+.paper-result-index {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--primary-light);
+  color: var(--primary);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.paper-result-qtitle {
+  flex: 1;
+  font-size: 13px;
+  color: #374151;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.paper-result-qscore {
+  font-weight: 600;
+  color: var(--primary);
+  flex-shrink: 0;
+}
+.paper-result-arrow {
+  color: var(--text-secondary);
+}
+.paper-result-tip {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding-bottom: 20px;
+}
