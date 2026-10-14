@@ -3,6 +3,7 @@ import type { TouchEvent as ReactTouchEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import type { PracticeRecord, PracticeType, Question } from '../../../shared/types'
+import { difficultyLabel } from '../../../shared/difficulty'
 import './history.css'
 
 const PRACTICE_TABS: (PracticeType | '全部')[] = [
@@ -165,6 +166,11 @@ export default function HistoryPage(): JSX.Element {
               <span className="tag tag-blue">{q?.type ?? '—'}</span>
               <span className="tag tag-gray">{r.practiceType}</span>
               {q && <span className="tag tag-green">{q.examType} · {q.subType}</span>}
+              {q && (
+                <span className="tag tag-orange">
+                  难度 {q.difficulty}/10 · {difficultyLabel(q.difficulty)}
+                </span>
+              )}
             </div>
             <div className="history-title">{q?.title ?? '（题目已删除）'}</div>
             <div className="history-time">

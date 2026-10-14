@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import type { HighlightMark, PracticeSession, Question } from '../../../shared/types'
+import { difficultyLabel } from '../../../shared/difficulty'
 import LinedPaper from '../components/LinedPaper'
 import MarkableText, { MARK_COLORS } from '../components/MarkableText'
 import './answer.css'
@@ -314,6 +315,9 @@ export default function AnswerPage(): JSX.Element {
           </span>
           <span className="answer-score">分值 {question.score} 分</span>
           <span className="answer-time">建议作答 {question.suggestMinutes} 分钟</span>
+          <span className="tag tag-orange">
+            难度 {question.difficulty}/10 · {difficultyLabel(question.difficulty)}
+          </span>
         </div>
 
         {canMark && (

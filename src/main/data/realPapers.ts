@@ -1,9 +1,10 @@
 import type { Paper, Question } from '../../shared/types'
+import { withDifficulty, type QuestionCore } from '../../shared/difficulty'
 
 // 说明：以下为根据公开来源整理的历年申论真题（题干、给定资料、参考答案）。
 // 给定资料为精简整理版，参考答案为依据官方/机构解析整理，供练习参考。
 
-export const seedRealQuestions: Question[] = [
+const seedRealQuestionList: QuestionCore[] = [
   // ============ 2024 辽宁省考（A卷）============
   {
     id: 'zt-ln-2024-01',
@@ -410,6 +411,9 @@ export const seedRealQuestions: Question[] = [
     source: '真题：2025 年国家公务员考试《申论》（副省级）'
   }
 ]
+
+// 统一按题型、分值、字数、材料长度等推导难度（0-10）
+export const seedRealQuestions: Question[] = withDifficulty(seedRealQuestionList)
 
 export const seedRealPapers: Paper[] = [
   {
