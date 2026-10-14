@@ -36,7 +36,9 @@ function copyDir(from, to) {
         fs.copyFileSync(s, d)
         copied += 1
       } catch (err) {
-        if (err.code === 'EBUSY' || err.code === 'EPERM' || err.code === 'EACCES') {
+        // 被占用/无权限（wokao 正在运行时常见，错误码可能是 EBUSY/EPERM/EACCES/UNKNOWN）
+        const code = err.code || ''
+        if (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES' || code === 'UNKNOWN') {
           skipped.push(entry.name)
         } else {
           throw err
