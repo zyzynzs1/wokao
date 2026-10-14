@@ -1,13 +1,19 @@
 import type {
   AppSettings,
+  ExamType,
+  GradingBand,
   LossItem,
   PointResult,
   Question,
   QuestionType,
   ScoreDimension,
   ScoreResult,
-  SkeletonPart
+  ScoringPoint,
+  SkeletonPart,
+  SubType
 } from '../shared/types'
+import { AI_GENERATED_SOURCE } from '../shared/types'
+import { calcDifficulty, difficultyLabel, type QuestionCore } from '../shared/difficulty'
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -472,5 +478,228 @@ export function applyFeedbackScore(
   if (scoreResult.totalScore > 0 && total >= scoreResult.totalScore) {
     fb.losses = undefined
   }
+}
+
+// ---- AI 自动命题 ----
+// 命题参数：向大模型明确「国考/省考（含类别）→ 知识点（题型）→ 难度 → 给分点」
+export interface QuestionSpec {
+  examType: ExamType
+  subType: SubType
+  province?: string
+  type: QuestionType
+  difficultyId?: string
+  targetDifficulty: number // 目标难度（0-10）
+}
+
+// 各难度档位对应的命题尺度说明，用于让模型产出与目标难度相符的题目
+const DIFFICULTY_HINT: { min: number; max: number; hint: string }[] = [
+  {
+    min: 0,
+    max: 4,
+    hint: '入门/基础：给定资料较短（300-500 字），给分点较少（3-4 个）且较为显豁，字数要求 200-300 字。'
+  },
+  {
+    min: 5,
+    max: 6,
+    hint: '进阶：给定资料中等（500-700 字），给分点 4-5 个，需要一定的归纳与提炼，字数要求 300-400 字。'
+  },
+  {
+    min: 7,
+    max: 10,
+    hint: '较难/高难：给定资料较长（700-1000 字），给分点 5-6 个且较为隐蔽，需要深入分析、归纳与提炼，字数要求 400-600 字。'
+  }
+]
+
+// 知识点（题型）说明，写入提示词，确保命题方向正确
+const TYPE_KNOWLEDGE: Record<QuestionType, string> = {
+  归纳概括: '归纳概括（提炼要点，考查阅读理解与概括能力）',
+  综合分析: '综合分析（词句理解 / 观点分析，考查剖析与思辨能力）',
+  提出对策: '提出对策（针对问题提出可行措施，考查解决问题能力）',
+  应用文写作: '应用文写作 / 贯彻执行（按文种撰写，考查格式规范与实务能力）',
+  文章论述: '文章论述（大作文，考查立意、论证与语言表达）'
+}
+
+// 各题型建议的给分点数量（大作文按划档给分，不设采分点）
+const TYPE_POINT_RANGE: Record<QuestionType, string> = {
+  归纳概括: '4-5 个',
+  综合分析: '4-5 个',
+  提出对策: '4-5 个',
+  应用文写作: '4-5 个',
+  文章论述: '0 个（改为给出四类文划档标准）'
+}
+
+function genQuestionId(): string {
+  return `ai-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function parseScoringPoints(raw: unknown): ScoringPoint[] {
+  if (!Array.isArray(raw)) return []
+  const out: ScoringPoint[] = []
+  raw.forEach((item, i) => {
+    if (!item || typeof item !== 'object') return
+    const o = item as Record<string, unknown>
+    const label = typeof o.label === 'string' ? o.label.trim() : ''
+    const score = typeof o.score === 'number' ? Math.round(o.score) : NaN
+    if (!label || !Number.isFinite(score) || score <= 0) return
+    const keywords = Array.isArray(o.keywords)
+      ? o.keywords.map((k) => String(k).trim()).filter(Boolean)
+      : []
+    out.push({ id: `p${i + 1}`, label, keywords, score })
+  })
+  return out
+}
+
+function parseGradingBands(raw: unknown, score: number): GradingBand[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: GradingBand[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const o = item as Record<string, unknown>
+    const band = typeof o.band === 'string' ? o.band.trim() : ''
+    const min = typeof o.min === 'number' ? o.min : NaN
+    const max = typeof o.max === 'number' ? o.max : NaN
+    if (!band || !Number.isFinite(min) || !Number.isFinite(max)) continue
+    const clamp = (n: number): number => Math.max(0, Math.min(score, Math.round(n)))
+    out.push({
+      band,
+      scoreRange: [clamp(min), clamp(max)],
+      description: typeof o.description === 'string' ? o.description : ''
+    })
+  }
+  return out.length > 0 ? out : undefined
+}
+
+// 调用大模型原创一道申论练习题。未配置 Key 或生成失败时返回 null（由调用方兜底）。
+export async function generateQuestion(
+  deepseek: DeepSeekConfig,
+  spec: QuestionSpec,
+  avoidTitles: string[] = []
+): Promise<Question | null> {
+  if (!deepseek.apiKey.trim()) return null
+  const { examType, subType, province, type, targetDifficulty } = spec
+  const isEssay = type === '文章论述'
+  const difficultyHint =
+    DIFFICULTY_HINT.find((h) => targetDifficulty >= h.min && targetDifficulty <= h.max)?.hint ?? ''
+  const examLine =
+    examType === '国考'
+      ? `国考·${subType}`
+      : `省考${province ? `（${province}）` : ''}·${subType}`
+
+  const systemPrompt =
+    '你是国家公务员录用考试《申论》科目的资深命题人，熟悉国考与省考的命题规律、材料选编与评分标准。' +
+    '请严格按照给定的考试类型、知识点（题型）、难度与给分点要求，原创一道高质量的申论练习题，' +
+    '并同时给出可直接用于阅卷的参考答案与给分点。不得照抄已有真题，不得与用户列出的已有题目重复。'
+
+  const pointsInfo = isEssay
+    ? '本题为大作文，不设采分点，请改为给出「一类文/二类文/三类文/四类文」四档划档标准，每档写明分数区间与特征描述。'
+    : `请给出 ${TYPE_POINT_RANGE[type]} 个给分点，每个给分点必须写明：要点名称（label）、判定关键词（keywords，2-4 个近义或原词）、本题分值（score）；各给分点分值之和必须等于本题满分。`
+
+  const userPrompt = `【本次命题参数（必须严格遵守）】
+- 考试类型与类别：${examLine}
+- 知识点（题型）：${TYPE_KNOWLEDGE[type]}
+- 目标难度：${targetDifficulty}/10（${difficultyLabel(targetDifficulty)}）。${difficultyHint}
+- 给分点要求：${pointsInfo}
+
+【材料要求】
+- 围绕一个真实、具体的社会 / 治理 / 发展话题，编写给定资料（合计 300-1000 字，随难度调整）。
+- 资料中要包含可提炼的事实、做法、数据或案例，不要直接给出结论性要点，要点须能由材料概括或分析得出。
+- 材料须自洽、可信，不得出现“略”“……”等占位。
+
+【题干与作答要求】
+- 题干应明确作答任务，与所选题型一致。
+- 作答要求写明分值与字数上限，如“要求：全面、准确、有条理，不超过 300 字。（15 分）”。
+
+【参考答案】
+- 给出规范、完整、可直接对照阅卷的参考答案（小题贴近采分点，大作文给出范文）。
+
+${
+  avoidTitles.length > 0
+    ? `【已存在的同类题目（请勿重复，须在话题、材料与作答任务上均有区别）】\n${avoidTitles
+        .map((t, i) => `${i + 1}. ${t}`)
+        .join('\n')}\n`
+    : ''
+}请严格按以下 JSON 格式输出（不要输出多余文字）：
+${
+  isEssay
+    ? `{
+  "title": "题干（含作答任务）",
+  "material": "给定资料",
+  "requirement": "作答要求（含分值与字数）",
+  "score": 数字（本题满分）,
+  "wordLimit": 数字（字数上限）,
+  "suggestMinutes": 数字（建议作答分钟数）,
+  "referenceAnswer": "范文",
+  "scoringRules": "划档给分说明",
+  "gradingBands": [{"band": "一类文", "min": 数字, "max": 数字, "description": "该档特征"}]
+}`
+    : `{
+  "title": "题干（含作答任务）",
+  "material": "给定资料",
+  "requirement": "作答要求（含分值与字数）",
+  "score": 数字（本题满分，须等于各给分点分值之和）,
+  "wordLimit": 数字（字数上限）,
+  "suggestMinutes": 数字（建议作答分钟数）,
+  "referenceAnswer": "参考答案",
+  "scoringRules": "按点给分说明",
+  "scoringPoints": [{"label": "要点名称", "keywords": ["关键词1", "关键词2"], "score": 数字（该点分值）}]
+}`
+}`
+
+  const raw = await chat(
+    deepseek,
+    [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ],
+    { temperature: 0.8, json: true, maxTokens: 4000 }
+  )
+  const parsed = extractJson(raw) as Record<string, unknown> | null
+  if (!parsed) return null
+
+  const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
+  const material = typeof parsed.material === 'string' ? parsed.material.trim() : ''
+  if (!title || !material) return null
+
+  const scoringPoints: ScoringPoint[] = isEssay ? [] : parseScoringPoints(parsed.scoringPoints)
+  let score = typeof parsed.score === 'number' && parsed.score > 0 ? Math.round(parsed.score) : 0
+  // 小题以给分点分值之和为准，保证「各点分值合计 = 满分」
+  if (!isEssay && scoringPoints.length > 0) score = scoringPoints.reduce((s, p) => s + p.score, 0)
+  if (score <= 0) score = isEssay ? 40 : 15
+
+  const wordLimit =
+    typeof parsed.wordLimit === 'number' && parsed.wordLimit > 0
+      ? Math.round(parsed.wordLimit)
+      : isEssay
+        ? 1000
+        : 300
+  const suggestMinutes =
+    typeof parsed.suggestMinutes === 'number' && parsed.suggestMinutes > 0
+      ? Math.round(parsed.suggestMinutes)
+      : isEssay
+        ? 60
+        : 20
+
+  const core: QuestionCore = {
+    id: genQuestionId(),
+    type,
+    examType,
+    subType,
+    province: examType === '省考' ? province : undefined,
+    title,
+    material,
+    requirement:
+      typeof parsed.requirement === 'string' && parsed.requirement.trim()
+        ? parsed.requirement.trim()
+        : `要求：不超过 ${wordLimit} 字。（${score} 分）`,
+    score,
+    suggestMinutes,
+    wordLimit,
+    referenceAnswer: typeof parsed.referenceAnswer === 'string' ? parsed.referenceAnswer : '',
+    scoringPoints,
+    scoringRules: typeof parsed.scoringRules === 'string' ? parsed.scoringRules : '',
+    gradingBands: isEssay ? parseGradingBands(parsed.gradingBands, score) : undefined,
+    source: AI_GENERATED_SOURCE
+  }
+  return { ...core, difficulty: calcDifficulty(core) }
 }
 

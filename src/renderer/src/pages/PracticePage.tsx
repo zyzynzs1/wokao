@@ -83,6 +83,8 @@ export default function PracticePage(): JSX.Element {
   const [knowExamType, setKnowExamType] = useState<ExamType>('国考')
   const [knowDifficulty, setKnowDifficulty] = useState('all')
   const [generating, setGenerating] = useState(false)
+  // 抽取单题时，题库不足会由 AI 自动命题，耗时较长，用该状态给出反馈
+  const [picking, setPicking] = useState(false)
   const [province, setProvince] = useState('辽宁')
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [sessions, setSessions] = useState<PracticeSession[]>([])
@@ -125,12 +127,15 @@ export default function PracticePage(): JSX.Element {
   }
 
   const startRandom = async (): Promise<void> => {
+    setPicking(true)
     const q = await window.api.randomQuestion(
       undefined,
       randomExamType,
       randomExamType === '省考' ? province : undefined,
-      randomDifficulty
+      randomDifficulty,
+      user?.id
     )
+    setPicking(false)
     if (q) {
       navigate('/practice/answer', {
         state: { mode: '随机练习', questionIds: [q.id], suggestMinutes: q.suggestMinutes }
@@ -139,12 +144,15 @@ export default function PracticePage(): JSX.Element {
   }
 
   const startKnowledge = async (type: QuestionType): Promise<void> => {
+    setPicking(true)
     const q = await window.api.randomQuestion(
       type,
       knowExamType,
       knowExamType === '省考' ? province : undefined,
-      knowDifficulty
+      knowDifficulty,
+      user?.id
     )
+    setPicking(false)
     if (q) {
       navigate('/practice/answer', {
         state: { mode: '知识点练习', questionIds: [q.id], suggestMinutes: q.suggestMinutes }
@@ -158,11 +166,12 @@ export default function PracticePage(): JSX.Element {
       examType,
       subType,
       examType === '省考' ? province : undefined,
-      paperDifficulty
+      paperDifficulty,
+      user?.id
     )
     setGenerating(false)
     if (paper.questionIds.length === 0) {
-      alert('该分类下题库暂未覆盖足够题目，请稍后再试或选择其他分类')
+      alert('暂无可用于组卷的题目。请到「设置 → AI 评分模型」配置可用的 API Key，配置后系统会自动命制新题。')
       return
     }
     navigate('/practice/answer', {
@@ -384,8 +393,8 @@ export default function PracticePage(): JSX.Element {
             )}
             <DifficultyPicker value={randomDifficulty} onChange={setRandomDifficulty} />
           </div>
-          <button className="btn btn-primary" onClick={startRandom}>
-            随机出题
+          <button className="btn btn-primary" onClick={startRandom} disabled={picking}>
+            {picking ? '出题中…' : '随机出题'}
           </button>
         </div>
 
@@ -532,8 +541,13 @@ export default function PracticePage(): JSX.Element {
           </div>
           <div className="type-grid">
             {QUESTION_TYPES.map((t) => (
-              <button key={t.type} className="type-item" onClick={() => startKnowledge(t.type)}>
-                <span className="type-name">{t.type}</span>
+              <button
+                key={t.type}
+                className="type-item"
+                onClick={() => void startKnowledge(t.type)}
+                disabled={picking}
+              >
+                <span className="type-name">{picking ? `${t.type} · 出题中…` : t.type}</span>
                 <span className="type-desc">{t.desc}</span>
               </button>
             ))}

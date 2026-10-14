@@ -319,6 +319,9 @@ export const MODEL_PRESETS: ModelPreset[] = [
   }
 ]
 
+// AI 自动生成题目的来源标识：内置题库不足以支撑练习时，由大模型即时命题并入库
+export const AI_GENERATED_SOURCE = 'AI 自动命题'
+
 // 未配置 API Key 时的点评占位文案（桌面端与手机端共用）
 export const NO_KEY_FEEDBACK =
   '本次为本地规则评分。想获得 AI 精批点评、范文与答题骨架？到「设置 → AI 评分模型」选择「智谱 GLM-4-Flash（永久免费）」，按提示免费领取 API Key 后重新作答即可开启。'
