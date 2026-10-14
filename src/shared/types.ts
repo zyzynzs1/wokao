@@ -73,6 +73,7 @@ export interface Question {
   material: string // 给定资料
   requirement: string // 作答要求（分值/字数等说明）
   score: number // 满分
+  difficulty: number // 难度（0-10，数字越大越难），由 calcDifficulty 统一推导
   suggestMinutes: number // 建议作答时长（分钟）
   wordLimit: number // 字数要求（大作文为区间上限，小题为上限）
   referenceAnswer: string // 参考答案 / 范文
