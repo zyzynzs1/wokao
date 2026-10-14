@@ -1,6 +1,7 @@
 import type {
   AppSettings,
   ExamType,
+  ImportedPaper,
   LanSyncInfo,
   LanSyncResult,
   LocalStudyFolder,
@@ -20,6 +21,7 @@ import type {
 } from '../shared/types'
 import { NO_KEY_FEEDBACK } from '../shared/types'
 import type { Api, ReevaluateResult, SubmitPayload, SubmitResult } from '../shared/api'
+import { filterByBand, findBand, inBand } from '../shared/difficulty'
 import { seedQuestions } from '../main/data/questions'
 import { seedRealPapers, seedRealQuestions } from '../main/data/realPapers'
 import { seedStudy } from '../main/data/study'
@@ -36,7 +38,8 @@ const K = {
   papers: 'wokao:papers',
   sessions: 'wokao:sessions',
   settings: 'wokao:settings',
-  lanSync: 'wokao:lanSync'
+  lanSync: 'wokao:lanSync',
+  importedPapers: 'wokao:importedPapers'
 }
 
 // 局域网同步：手机端只保存「电脑端地址 + 同步码」
@@ -94,13 +97,23 @@ function uid(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2)
 }
 
-// ---- 只读种子数据 ----
+// ---- 只读种子数据 + 本地导入的真题 ----
+function loadImported(): ImportedPaper[] {
+  return read<ImportedPaper[]>(K.importedPapers, [])
+}
+
 function allQuestions(): Question[] {
-  return [...seedQuestions, ...seedRealQuestions]
+  return [...seedQuestions, ...seedRealQuestions, ...loadImported().flatMap((p) => p.questions)]
 }
 
 function findQuestion(id: string): Question | undefined {
-  return seedQuestions.find((q) => q.id === id) ?? seedRealQuestions.find((q) => q.id === id)
+  return (
+    seedQuestions.find((q) => q.id === id) ??
+    seedRealQuestions.find((q) => q.id === id) ??
+    loadImported()
+      .flatMap((p) => p.questions)
+      .find((q) => q.id === id)
+  )
 }
 
 // ---- 设置 ----
@@ -150,7 +163,8 @@ function pickByType(
   types: QuestionType[],
   subType: SubType,
   examType: ExamType,
-  province?: string
+  province?: string,
+  difficultyId?: string
 ): Question[] {
   let pool = allQuestions().filter((q) => q.subType === subType && q.examType === examType)
   if (examType === '省考') {
@@ -158,11 +172,15 @@ function pickByType(
     const generic = pool.filter((q) => !q.province || q.province === '通用')
     if (byProvince.length > 0 || generic.length > 0) pool = [...byProvince, ...generic]
   }
+  const band = findBand(difficultyId)
   const picked: Question[] = []
   const used = new Set<string>()
   for (const t of types) {
     const candidates = pool.filter((q) => q.type === t && !used.has(q.id))
-    const chosen = candidates[Math.floor(Math.random() * candidates.length)]
+    // 优先取符合难度档位的题；该题型在档位内没有题目时退回全部候选，保证整卷结构完整
+    const inBandCandidates = band ? candidates.filter((q) => inBand(q.difficulty, band)) : candidates
+    const finalists = inBandCandidates.length > 0 ? inBandCandidates : candidates
+    const chosen = finalists[Math.floor(Math.random() * finalists.length)]
     if (chosen) {
       used.add(chosen.id)
       picked.push(chosen)
@@ -171,10 +189,15 @@ function pickByType(
   return picked
 }
 
-function buildPaper(examType: ExamType, subType: SubType, province?: string): Paper {
+function buildPaper(
+  examType: ExamType,
+  subType: SubType,
+  province?: string,
+  difficultyId?: string
+): Paper {
   const structure = PAPER_STRUCTURES.find((s) => s.examType === examType && s.subType === subType)
   const types = structure?.types ?? ['归纳概括', '综合分析', '提出对策', '应用文写作', '文章论述']
-  const questions = pickByType(types, subType, examType, province)
+  const questions = pickByType(types, subType, examType, province, difficultyId)
   const totalScore = questions.reduce((s, q) => s + q.score, 0)
   const suggestMinutes = questions.reduce((s, q) => s + q.suggestMinutes, 0)
   const title =
@@ -241,7 +264,12 @@ export const mobileApi: Api = {
 
   getQuestions: async () => allQuestions(),
   getQuestion: async (id) => findQuestion(id),
-  randomQuestion: async (type?: QuestionType, examType?: ExamType, province?: string) => {
+  randomQuestion: async (
+    type?: QuestionType,
+    examType?: ExamType,
+    province?: string,
+    difficultyId?: string
+  ) => {
     let pool = allQuestions()
     if (type) pool = pool.filter((q) => q.type === type)
     if (examType) pool = pool.filter((q) => q.examType === examType)
@@ -250,6 +278,8 @@ export const mobileApi: Api = {
       const generic = pool.filter((q) => !q.province || q.province === '通用')
       if (byProvince.length > 0 || generic.length > 0) pool = [...byProvince, ...generic]
     }
+    // 按难度档位筛选；档位内无题时兜底返回，保证仍能出题
+    pool = filterByBand(pool, findBand(difficultyId))
     if (pool.length === 0) return null
     return pool[Math.floor(Math.random() * pool.length)]
   },
@@ -257,8 +287,8 @@ export const mobileApi: Api = {
     ['归纳概括', '综合分析', '提出对策', '应用文写作', '文章论述'] as QuestionType[],
 
   getPapers: async () => loadPapers().sort((a, b) => b.createdAt - a.createdAt),
-  generatePaper: async (examType, subType, province) => {
-    const paper = buildPaper(examType, subType, province)
+  generatePaper: async (examType, subType, province, difficultyId) => {
+    const paper = buildPaper(examType, subType, province, difficultyId)
     const papers = loadPapers()
     papers.push(paper)
     savePapers(papers)
@@ -266,8 +296,16 @@ export const mobileApi: Api = {
   },
   getPaper: async (id) => loadPapers().find((p) => p.id === id),
 
-  getRealPapers: async () => seedRealPapers,
-  getRealPaper: async (id) => seedRealPapers.find((p) => p.id === id),
+  getRealPapers: async () => [...loadImported().map((p) => p.paper), ...seedRealPapers],
+  getRealPaper: async (id) =>
+    loadImported().find((p) => p.paper.id === id)?.paper ?? seedRealPapers.find((p) => p.id === id),
+  importRealPaper: async (paper, questions) => {
+    if (!paper || questions.length === 0) return { ok: false, error: '导入内容为空' }
+    const list = loadImported()
+    list.push({ paper, questions })
+    write(K.importedPapers, list)
+    return { ok: true }
+  },
 
   getRecords: async (userId) =>
     loadRecords()

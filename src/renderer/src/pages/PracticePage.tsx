@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import type {
@@ -10,7 +11,16 @@ import type {
   QuestionType,
   SubType
 } from '../../../shared/types'
-import { PROVINCES } from '../../../shared/types'
+import { DIFFICULTY_BANDS, PROVINCES } from '../../../shared/types'
+import { difficultyLabel } from '../../../shared/difficulty'
+import {
+  buildImportedPaper,
+  deriveTitle,
+  extractText,
+  parseExamText,
+  SUPPORTED_EXT,
+  type ParsedExam
+} from '../utils/paperImport'
 import './practice.css'
 
 const QUESTION_TYPES: { type: QuestionType; desc: string }[] = [
@@ -26,18 +36,70 @@ const EXAM_CONFIGS: { examType: ExamType; subTypes: SubType[] }[] = [
   { examType: '省考', subTypes: ['省市级', '县乡级'] }
 ]
 
+interface ImportDraft {
+  exam: ParsedExam
+  fileName: string
+  title: string
+  examType: ExamType
+  subType: SubType
+  province: string
+}
+
+// 难度选择器：不限 / 入门 / 进阶 / 较难
+function DifficultyPicker({
+  value,
+  onChange
+}: {
+  value: string
+  onChange: (v: string) => void
+}): JSX.Element {
+  return (
+    <div className="control-line">
+      <span className="control-label">难度</span>
+      <div className="seg-group">
+        {DIFFICULTY_BANDS.map((b) => (
+          <button
+            key={b.id}
+            className={`seg${value === b.id ? ' active' : ''}`}
+            onClick={() => onChange(b.id)}
+          >
+            {b.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function PracticePage(): JSX.Element {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [examType, setExamType] = useState<ExamType>('国考')
   const [subType, setSubType] = useState<SubType>('副省级')
   const [randomExamType, setRandomExamType] = useState<ExamType>('国考')
+  const [randomDifficulty, setRandomDifficulty] = useState('all')
+  const [paperDifficulty, setPaperDifficulty] = useState('all')
+  // 知识点练习：支持选择国考 / 省考与难度
+  const [knowExamType, setKnowExamType] = useState<ExamType>('国考')
+  const [knowDifficulty, setKnowDifficulty] = useState('all')
   const [generating, setGenerating] = useState(false)
   const [province, setProvince] = useState('辽宁')
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [sessions, setSessions] = useState<PracticeSession[]>([])
   const [realPapers, setRealPapers] = useState<Paper[]>([])
   const [questionMap, setQuestionMap] = useState<Record<string, Question>>({})
+  // 真题导入
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [importing, setImporting] = useState(false)
+  const [importError, setImportError] = useState('')
+  const [draft, setDraft] = useState<ImportDraft | null>(null)
+
+  const reloadQuestions = async (): Promise<void> => {
+    const qs = await window.api.getQuestions()
+    const map: Record<string, Question> = {}
+    for (const q of qs) map[q.id] = q
+    setQuestionMap(map)
+  }
 
   useEffect(() => {
     void window.api.getSettings().then((s) => {
@@ -45,11 +107,7 @@ export default function PracticePage(): JSX.Element {
       setProvince(s.province ?? '辽宁')
     })
     void window.api.getRealPapers().then(setRealPapers)
-    void window.api.getQuestions().then((qs) => {
-      const map: Record<string, Question> = {}
-      for (const q of qs) map[q.id] = q
-      setQuestionMap(map)
-    })
+    void reloadQuestions()
   }, [])
 
   useEffect(() => {
@@ -70,7 +128,8 @@ export default function PracticePage(): JSX.Element {
     const q = await window.api.randomQuestion(
       undefined,
       randomExamType,
-      randomExamType === '省考' ? province : undefined
+      randomExamType === '省考' ? province : undefined,
+      randomDifficulty
     )
     if (q) {
       navigate('/practice/answer', {
@@ -80,7 +139,12 @@ export default function PracticePage(): JSX.Element {
   }
 
   const startKnowledge = async (type: QuestionType): Promise<void> => {
-    const q = await window.api.randomQuestion(type)
+    const q = await window.api.randomQuestion(
+      type,
+      knowExamType,
+      knowExamType === '省考' ? province : undefined,
+      knowDifficulty
+    )
     if (q) {
       navigate('/practice/answer', {
         state: { mode: '知识点练习', questionIds: [q.id], suggestMinutes: q.suggestMinutes }
@@ -93,7 +157,8 @@ export default function PracticePage(): JSX.Element {
     const paper = await window.api.generatePaper(
       examType,
       subType,
-      examType === '省考' ? province : undefined
+      examType === '省考' ? province : undefined,
+      paperDifficulty
     )
     setGenerating(false)
     if (paper.questionIds.length === 0) {
@@ -158,7 +223,61 @@ export default function PracticePage(): JSX.Element {
     })
   }
 
+  // 选择本地文件 → 抽取文本 → 解析成题目结构 → 弹出预览确认
+  const onPickFile = async (e: ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setImporting(true)
+    setImportError('')
+    try {
+      const text = await extractText(await file.arrayBuffer(), file.name)
+      const exam = parseExamText(text, file.name)
+      setDraft({
+        exam,
+        fileName: file.name,
+        title: deriveTitle(file.name),
+        examType: '国考',
+        subType: '副省级',
+        province
+      })
+    } catch (err) {
+      setImportError((err as Error).message)
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const confirmImport = async (): Promise<void> => {
+    if (!draft) return
+    setImporting(true)
+    setImportError('')
+    try {
+      const { paper, questions } = buildImportedPaper(draft.exam, {
+        title: draft.title.trim() || deriveTitle(draft.fileName),
+        examType: draft.examType,
+        subType: draft.subType,
+        province: draft.examType === '省考' ? draft.province : undefined,
+        source: `本地导入 · ${draft.fileName}`
+      })
+      const res = await window.api.importRealPaper(paper, questions)
+      if (!res.ok) {
+        setImportError(res.error ?? '导入失败')
+        return
+      }
+      setRealPapers(await window.api.getRealPapers())
+      await reloadQuestions()
+      setDraft(null)
+    } finally {
+      setImporting(false)
+    }
+  }
+
   const config = EXAM_CONFIGS.find((c) => c.examType === examType)
+  const draftConfig = draft ? EXAM_CONFIGS.find((c) => c.examType === draft.examType) : undefined
+
+  const isImported = (p: Paper): boolean =>
+    p.questionIds.some((id) => questionMap[id]?.source?.startsWith('本地导入'))
 
   return (
     <div>
@@ -263,6 +382,7 @@ export default function PracticePage(): JSX.Element {
                 </select>
               </div>
             )}
+            <DifficultyPicker value={randomDifficulty} onChange={setRandomDifficulty} />
           </div>
           <button className="btn btn-primary" onClick={startRandom}>
             随机出题
@@ -316,6 +436,7 @@ export default function PracticePage(): JSX.Element {
                 </button>
               ))}
             </div>
+            <DifficultyPicker value={paperDifficulty} onChange={setPaperDifficulty} />
           </div>
           <button className="btn btn-primary" onClick={startPaper} disabled={generating}>
             {generating ? '组卷中…' : '生成试卷'}
@@ -324,17 +445,43 @@ export default function PracticePage(): JSX.Element {
 
         {/* 真题练习 */}
         <div className="card practice-card practice-card-wide">
-          <div className="practice-icon">🏆</div>
-          <h2>真题练习</h2>
-          <p className="practice-desc">历年申论真题，以整卷形式作答，贴近真实考试。</p>
+          <div className="real-paper-head">
+            <div>
+              <div className="practice-icon">🏆</div>
+              <h2>真题练习</h2>
+            </div>
+            <div className="real-paper-import">
+              <input
+                ref={fileRef}
+                type="file"
+                accept={SUPPORTED_EXT.join(',')}
+                style={{ display: 'none' }}
+                onChange={(e) => void onPickFile(e)}
+              />
+              <button
+                className="btn btn-outline btn-sm"
+                onClick={() => fileRef.current?.click()}
+                disabled={importing}
+              >
+                {importing ? '解析中…' : '导入本地真题'}
+              </button>
+            </div>
+          </div>
+          <p className="practice-desc">
+            历年申论真题，以整卷形式作答，贴近真实考试。支持导入本地 zip / word（docx）/ pdf 文件。
+          </p>
+          {importError && <p className="import-error">{importError}</p>}
           {realPapers.length === 0 ? (
-            <p className="practice-desc">暂无真题卷，敬请期待。</p>
+            <p className="practice-desc">暂无真题卷，可点击「导入本地真题」添加。</p>
           ) : (
             <div className="real-paper-list">
               {realPapers.map((p) => (
                 <button key={p.id} className="real-paper-item" onClick={() => startRealPaper(p)}>
                   <div className="real-paper-info">
-                    <div className="real-paper-title">{p.title}</div>
+                    <div className="real-paper-title">
+                      {p.title}
+                      {isImported(p) && <span className="tag tag-orange real-paper-tag">导入</span>}
+                    </div>
                     <div className="real-paper-meta">
                       {p.examType} · {p.subType}
                       {p.province ? ` · ${p.province}` : ''} · {p.questionIds.length} 题 · 满分{' '}
@@ -352,7 +499,37 @@ export default function PracticePage(): JSX.Element {
         <div className="card practice-card practice-card-wide">
           <div className="practice-icon">🎯</div>
           <h2>知识点练习</h2>
-          <p className="practice-desc">按申论五大题型进行专项练习，补齐短板。</p>
+          <p className="practice-desc">按申论五大题型进行专项练习，可指定国考 / 省考与难度。</p>
+          <div className="practice-controls">
+            <div className="seg-group">
+              {EXAM_CONFIGS.map((c) => (
+                <button
+                  key={c.examType}
+                  className={`seg${knowExamType === c.examType ? ' active' : ''}`}
+                  onClick={() => setKnowExamType(c.examType)}
+                >
+                  {c.examType}
+                </button>
+              ))}
+            </div>
+            {knowExamType === '省考' && (
+              <div className="province-row">
+                <label className="province-label">省份</label>
+                <select
+                  className="province-select"
+                  value={province}
+                  onChange={(e) => void changeProvince(e.target.value)}
+                >
+                  {PROVINCES.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <DifficultyPicker value={knowDifficulty} onChange={setKnowDifficulty} />
+          </div>
           <div className="type-grid">
             {QUESTION_TYPES.map((t) => (
               <button key={t.type} className="type-item" onClick={() => startKnowledge(t.type)}>
@@ -363,6 +540,105 @@ export default function PracticePage(): JSX.Element {
           </div>
         </div>
       </div>
+
+      {/* 导入预览确认 */}
+      {draft && (
+        <div className="import-mask" onClick={() => !importing && setDraft(null)}>
+          <div className="import-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="import-title">导入真题预览</h3>
+            <p className="import-sub">
+              已从《{draft.fileName}》识别出 {draft.exam.questions.length} 道题
+              {draft.exam.material ? `、给定资料约 ${draft.exam.material.replace(/\s/g, '').length} 字` : ''}
+              ，确认下列信息后导入。
+            </p>
+
+            <div className="import-fields">
+              <div className="import-field">
+                <span className="control-label">卷名</span>
+                <input
+                  className="input"
+                  value={draft.title}
+                  onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                />
+              </div>
+              <div className="import-field">
+                <span className="control-label">考试类型</span>
+                <div className="seg-group">
+                  {EXAM_CONFIGS.map((c) => (
+                    <button
+                      key={c.examType}
+                      className={`seg${draft.examType === c.examType ? ' active' : ''}`}
+                      onClick={() =>
+                        setDraft({ ...draft, examType: c.examType, subType: c.subTypes[0] })
+                      }
+                    >
+                      {c.examType}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {draft.examType === '省考' && (
+                <div className="import-field">
+                  <span className="control-label">省份</span>
+                  <select
+                    className="province-select"
+                    value={draft.province}
+                    onChange={(e) => setDraft({ ...draft, province: e.target.value })}
+                  >
+                    {PROVINCES.map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="import-field">
+                <span className="control-label">分类</span>
+                <div className="seg-group">
+                  {draftConfig?.subTypes.map((s) => (
+                    <button
+                      key={s}
+                      className={`seg${draft.subType === s ? ' active' : ''}`}
+                      onClick={() => setDraft({ ...draft, subType: s })}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="import-list">
+              {draft.exam.questions.map((q, i) => (
+                <div key={i} className="import-item">
+                  <div className="import-item-head">
+                    <span className="tag tag-blue">第 {i + 1} 题</span>
+                    <span className="tag tag-green">{q.type}</span>
+                    <span className="tag tag-gray">{q.score} 分</span>
+                    {q.wordLimit > 0 && <span className="tag tag-gray">{q.wordLimit} 字</span>}
+                    <span className="tag tag-orange">
+                      难度 {q.difficulty}/10 · {difficultyLabel(q.difficulty)}
+                    </span>
+                  </div>
+                  <div className="import-item-text">{q.title}</div>
+                </div>
+              ))}
+            </div>
+
+            {importError && <p className="import-error">{importError}</p>}
+
+            <div className="import-actions">
+              <button className="btn btn-outline" onClick={() => setDraft(null)} disabled={importing}>
+                取消
+              </button>
+              <button className="btn btn-primary" onClick={() => void confirmImport()} disabled={importing}>
+                {importing ? '导入中…' : `导入 ${draft.exam.questions.length} 道题`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

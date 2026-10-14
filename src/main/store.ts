@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto'
 import { join } from 'path'
 import type {
   AppSettings,
+  ImportedPaper,
   Paper,
   PracticeRecord,
   PracticeSession,
@@ -61,6 +62,8 @@ let records: PracticeRecord[] = []
 let papers: Paper[] = []
 let settings: AppSettings = DEFAULT_SETTINGS
 let sessions: PracticeSession[] = []
+// 从本地文件导入的真题卷（含解析出的题目），持久化保存
+let importedPapers: ImportedPaper[] = []
 
 // ---- 局域网同步状态（桌面端作为服务端）----
 export interface LanSyncState {
@@ -85,6 +88,7 @@ export function initStore(): void {
   papers = readJson<Paper[]>('papers.json', [])
   settings = readJson<AppSettings>('settings.json', DEFAULT_SETTINGS)
   sessions = readJson<PracticeSession[]>('sessions.json', [])
+  importedPapers = readJson<ImportedPaper[]>('importedPapers.json', [])
   lanSync = { ...DEFAULT_LAN_SYNC, ...readJson<Partial<LanSyncState>>('lanSync.json', {}) }
   if (!lanSync.token) lanSync.token = randomToken()
   writeJson('lanSync.json', lanSync)
@@ -113,13 +117,21 @@ function persistSessions(): void {
   writeJson('sessions.json', sessions)
 }
 
-// ---- 题库 / 学习资料（只读种子数据）----
+// ---- 题库 / 学习资料（只读种子数据 + 本地导入的题目）----
+function importedQuestions(): Question[] {
+  return importedPapers.flatMap((p) => p.questions)
+}
+
 export function getQuestions(): Question[] {
-  return [...seedQuestions, ...seedRealQuestions]
+  return [...seedQuestions, ...seedRealQuestions, ...importedQuestions()]
 }
 
 export function getQuestionById(id: string): Question | undefined {
-  return seedQuestions.find((q) => q.id === id) ?? seedRealQuestions.find((q) => q.id === id)
+  return (
+    seedQuestions.find((q) => q.id === id) ??
+    seedRealQuestions.find((q) => q.id === id) ??
+    importedQuestions().find((q) => q.id === id)
+  )
 }
 
 export function getStudyMaterials(): StudyMaterial[] {
@@ -255,13 +267,22 @@ export function getPaperById(id: string): Paper | undefined {
   return papers.find((p) => p.id === id)
 }
 
-// ---- 真题卷（只读种子数据）----
+// ---- 真题卷（内置种子数据 + 本地导入）----
 export function getRealPapers(): Paper[] {
-  return seedRealPapers
+  return [...importedPapers.map((p) => p.paper), ...seedRealPapers]
 }
 
 export function getRealPaperById(id: string): Paper | undefined {
-  return seedRealPapers.find((p) => p.id === id)
+  return (
+    importedPapers.find((p) => p.paper.id === id)?.paper ??
+    seedRealPapers.find((p) => p.id === id)
+  )
+}
+
+// 保存一张导入的真题卷（含解析出的题目）
+export function addImportedPaper(item: ImportedPaper): void {
+  importedPapers.push(item)
+  writeJson('importedPapers.json', importedPapers)
 }
 
 // ---- 设置 ----

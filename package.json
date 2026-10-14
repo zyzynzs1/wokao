@@ -27,6 +27,8 @@
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
+    "jszip": "^3.10.2",
+    "pdfjs-dist": "^6.4.299",
     "pngjs": "^7.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

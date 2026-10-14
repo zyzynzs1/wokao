@@ -6,17 +6,18 @@ const api: Api = {
 
   getQuestions: () => ipcRenderer.invoke('questions:all'),
   getQuestion: (id) => ipcRenderer.invoke('questions:get', id),
-  randomQuestion: (type, examType, province) =>
-    ipcRenderer.invoke('questions:random', type, examType, province),
+  randomQuestion: (type, examType, province, difficultyId) =>
+    ipcRenderer.invoke('questions:random', type, examType, province, difficultyId),
   getQuestionTypes: () => ipcRenderer.invoke('questions:types'),
 
   getPapers: () => ipcRenderer.invoke('papers:all'),
-  generatePaper: (examType, subType, province) =>
-    ipcRenderer.invoke('papers:generate', examType, subType, province),
+  generatePaper: (examType, subType, province, difficultyId) =>
+    ipcRenderer.invoke('papers:generate', examType, subType, province, difficultyId),
   getPaper: (id) => ipcRenderer.invoke('papers:get', id),
 
   getRealPapers: () => ipcRenderer.invoke('realPapers:all'),
   getRealPaper: (id) => ipcRenderer.invoke('realPapers:get', id),
+  importRealPaper: (paper, questions) => ipcRenderer.invoke('realPapers:import', { paper, questions }),
 
   getRecords: (userId) => ipcRenderer.invoke('records:list', userId),
   getRecord: (id) => ipcRenderer.invoke('records:get', id),

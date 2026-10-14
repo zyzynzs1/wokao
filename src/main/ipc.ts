@@ -5,6 +5,7 @@ import { join } from 'path'
 import type {
   ExamType,
   HighlightMark,
+  ImportedPaper,
   LossItem,
   Paper,
   PracticeRecord,
@@ -18,10 +19,12 @@ import type {
   SubType
 } from '../shared/types'
 import { NO_KEY_FEEDBACK } from '../shared/types'
+import { filterByBand, findBand, inBand } from '../shared/difficulty'
 import { applyFeedbackScore, buildDimensions, generateFeedback, testConnection } from './llm'
 import { getLanSyncInfo, regenerateSyncToken, startLanSync, stopLanSync } from './lanSync'
 import { scoreAnswer } from './scoring'
 import {
+  addImportedPaper,
   addPaper,
   addRecord,
   deleteRecordById,
@@ -53,7 +56,13 @@ const PAPER_STRUCTURES: { examType: ExamType; subType: SubType; types: QuestionT
   { examType: '省考', subType: '县乡级', types: ['归纳概括', '提出对策', '应用文写作', '文章论述'] }
 ]
 
-function pickByType(types: QuestionType[], subType: SubType, examType: ExamType, province?: string): Question[] {
+function pickByType(
+  types: QuestionType[],
+  subType: SubType,
+  examType: ExamType,
+  province?: string,
+  difficultyId?: string
+): Question[] {
   let pool = getQuestions().filter((q) => q.subType === subType && q.examType === examType)
   if (examType === '省考') {
     // 优先匹配所选省份的题目，其次用通用题，最后兜底使用全部省考题
@@ -63,11 +72,15 @@ function pickByType(types: QuestionType[], subType: SubType, examType: ExamType,
       pool = [...byProvince, ...generic]
     }
   }
+  const band = findBand(difficultyId)
   const picked: Question[] = []
   const used = new Set<string>()
   for (const t of types) {
     const candidates = pool.filter((q) => q.type === t && !used.has(q.id))
-    const chosen = candidates[Math.floor(Math.random() * candidates.length)]
+    // 优先取符合难度档位的题；该题型在档位内没有题目时退回全部候选，保证整卷结构完整
+    const inBandCandidates = band ? candidates.filter((q) => inBand(q.difficulty, band)) : candidates
+    const finalists = inBandCandidates.length > 0 ? inBandCandidates : candidates
+    const chosen = finalists[Math.floor(Math.random() * finalists.length)]
     if (chosen) {
       used.add(chosen.id)
       picked.push(chosen)
@@ -76,10 +89,15 @@ function pickByType(types: QuestionType[], subType: SubType, examType: ExamType,
   return picked
 }
 
-function buildPaper(examType: ExamType, subType: SubType, province?: string): Paper {
+function buildPaper(
+  examType: ExamType,
+  subType: SubType,
+  province?: string,
+  difficultyId?: string
+): Paper {
   const structure = PAPER_STRUCTURES.find((s) => s.examType === examType && s.subType === subType)
   const types = structure?.types ?? ['归纳概括', '综合分析', '提出对策', '应用文写作', '文章论述']
-  const questions = pickByType(types, subType, examType, province)
+  const questions = pickByType(types, subType, examType, province, difficultyId)
   const totalScore = questions.reduce((s, q) => s + q.score, 0)
   const suggestMinutes = questions.reduce((s, q) => s + q.suggestMinutes, 0)
   const title =
@@ -135,33 +153,49 @@ export function registerIpc(): void {
 
   ipcMain.handle('questions:all', () => getQuestions())
   ipcMain.handle('questions:get', (_e, id: string) => getQuestionById(id))
-  ipcMain.handle('questions:random', (_e, type?: QuestionType, examType?: ExamType, province?: string) => {
-    let pool = getQuestions()
-    if (type) pool = pool.filter((q) => q.type === type)
-    if (examType) pool = pool.filter((q) => q.examType === examType)
-    if (examType === '省考' && province) {
-      const byProvince = pool.filter((q) => q.province === province)
-      const generic = pool.filter((q) => !q.province || q.province === '通用')
-      if (byProvince.length > 0 || generic.length > 0) pool = [...byProvince, ...generic]
+  ipcMain.handle(
+    'questions:random',
+    (_e, type?: QuestionType, examType?: ExamType, province?: string, difficultyId?: string) => {
+      let pool = getQuestions()
+      if (type) pool = pool.filter((q) => q.type === type)
+      if (examType) pool = pool.filter((q) => q.examType === examType)
+      if (examType === '省考' && province) {
+        const byProvince = pool.filter((q) => q.province === province)
+        const generic = pool.filter((q) => !q.province || q.province === '通用')
+        if (byProvince.length > 0 || generic.length > 0) pool = [...byProvince, ...generic]
+      }
+      // 按难度档位筛选；档位内无题时兜底返回，保证仍能出题
+      pool = filterByBand(pool, findBand(difficultyId))
+      if (pool.length === 0) return null
+      return pool[Math.floor(Math.random() * pool.length)]
     }
-    if (pool.length === 0) return null
-    return pool[Math.floor(Math.random() * pool.length)]
-  })
+  )
   ipcMain.handle('questions:types', () => {
     const types: QuestionType[] = ['归纳概括', '综合分析', '提出对策', '应用文写作', '文章论述']
     return types
   })
 
   ipcMain.handle('papers:all', () => getPapers())
-  ipcMain.handle('papers:generate', (_e, examType: ExamType, subType: SubType, province?: string) => {
-    const paper = buildPaper(examType, subType, province)
-    addPaper(paper)
-    return paper
-  })
+  ipcMain.handle(
+    'papers:generate',
+    (_e, examType: ExamType, subType: SubType, province?: string, difficultyId?: string) => {
+      const paper = buildPaper(examType, subType, province, difficultyId)
+      addPaper(paper)
+      return paper
+    }
+  )
   ipcMain.handle('papers:get', (_e, id: string) => getPaperById(id))
 
   ipcMain.handle('realPapers:all', () => getRealPapers())
   ipcMain.handle('realPapers:get', (_e, id: string) => getRealPaperById(id))
+  // 导入本地解析出的真题卷（题目已在前端解析并带好难度）
+  ipcMain.handle('realPapers:import', (_e, item: ImportedPaper) => {
+    if (!item?.paper || !Array.isArray(item.questions) || item.questions.length === 0) {
+      return { ok: false, error: '导入内容为空' }
+    }
+    addImportedPaper(item)
+    return { ok: true }
+  })
 
   ipcMain.handle('records:list', (_e, userId: string) => getRecordsByUser(userId))
   ipcMain.handle('records:get', (_e, id: string) => getRecordById(id))
