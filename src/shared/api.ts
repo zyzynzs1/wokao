@@ -41,15 +41,27 @@ export interface Api {
 
   getQuestions: () => Promise<Question[]>
   getQuestion: (id: string) => Promise<Question | undefined>
-  randomQuestion: (type?: QuestionType, examType?: ExamType, province?: string) => Promise<Question | null>
+  randomQuestion: (
+    type?: QuestionType,
+    examType?: ExamType,
+    province?: string,
+    difficultyId?: string
+  ) => Promise<Question | null>
   getQuestionTypes: () => Promise<QuestionType[]>
 
   getPapers: () => Promise<Paper[]>
-  generatePaper: (examType: ExamType, subType: SubType, province?: string) => Promise<Paper>
+  generatePaper: (
+    examType: ExamType,
+    subType: SubType,
+    province?: string,
+    difficultyId?: string
+  ) => Promise<Paper>
   getPaper: (id: string) => Promise<Paper | undefined>
 
   getRealPapers: () => Promise<Paper[]>
   getRealPaper: (id: string) => Promise<Paper | undefined>
+  // 导入本地文件解析出的真题卷（zip / word / pdf），存入真题库
+  importRealPaper: (paper: Paper, questions: Question[]) => Promise<{ ok: boolean; error?: string }>
 
   getRecords: (userId: string) => Promise<PracticeRecord[]>
   getRecord: (id: string) => Promise<PracticeRecord | undefined>

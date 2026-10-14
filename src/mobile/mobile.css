@@ -276,6 +276,17 @@ html.mobile .province-select {
   max-width: none;
   min-width: 0;
 }
+/* 真题导入预览弹窗：手机端尽量占满屏宽 */
+html.mobile .import-mask {
+  padding: 12px;
+}
+html.mobile .import-modal {
+  max-height: 92vh;
+  padding: 16px;
+}
+html.mobile .import-field {
+  align-items: flex-start;
+}
 
 /* ============ 学习页 ============ */
 

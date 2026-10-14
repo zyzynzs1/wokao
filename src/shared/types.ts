@@ -12,6 +12,22 @@ export type ExamType = '国考' | '省考'
 // 国考职位类别 / 省考层级
 export type SubType = '副省级' | '地市级' | '行政执法类' | '省市级' | '县乡级'
 
+// 练习难度档位（用于随机练习 / 整卷练习 / 知识点练习的难度筛选）
+// 档位区间与难度描述保持一致：0-4 入门·基础，5-6 进阶，7-10 较难·高难
+export interface DifficultyBand {
+  id: string
+  label: string
+  min: number
+  max: number
+}
+
+export const DIFFICULTY_BANDS: DifficultyBand[] = [
+  { id: 'all', label: '不限难度', min: 0, max: 10 },
+  { id: 'easy', label: '入门 · 0-4', min: 0, max: 4 },
+  { id: 'medium', label: '进阶 · 5-6', min: 5, max: 6 },
+  { id: 'hard', label: '较难 · 7-10', min: 7, max: 10 }
+]
+
 // 可选省份（省考），默认辽宁
 export const PROVINCES: string[] = [
   '辽宁',
@@ -186,9 +202,14 @@ export interface Paper {
   createdAt: number
 }
 
+// 从本地文件导入的真题：一张卷 + 解析出的题目（持久化保存，与内置真题一并展示）
+export interface ImportedPaper {
+  paper: Paper
+  questions: Question[]
+}
+
 // 学习资料
 export type StudyCategory = '知识点' | '答题技巧' | '满分范文' | '作答模板'
-
 export interface StudyMaterial {
   id: string
   category: StudyCategory
