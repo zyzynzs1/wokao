@@ -12,7 +12,7 @@
     "gen:icon": "node scripts/generate-icon.js",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
-    "dist": "npm run gen:icon && electron-vite build && electron-builder"
+    "dist": "npm run gen:icon && electron-vite build && electron-builder --publish never && node scripts/copy-to-root.js"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
@@ -35,7 +35,7 @@
     "appId": "com.wokao.app",
     "productName": "wokao",
     "directories": {
-      "output": "dist"
+      "output": "dist-app"
     },
     "electronDist": "node_modules/electron/dist",
     "files": [
