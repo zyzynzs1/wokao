@@ -185,6 +185,44 @@ function extractJson(text: string): unknown {
   return null
 }
 
+// 依据「考试类型 + 题型」给出评分标准说明，作为模型打分的唯一依据
+function gradingStandard(question: Question, province?: string): string {
+  const { examType, subType, type } = question
+  const byType: Record<QuestionType, string> = {
+    归纳概括:
+      '按点给分，要点齐全、准确是第一位的（约占 70%-80%）；条理清晰、分条作答；表述应与材料原词一致。',
+    综合分析:
+      '解释（观点）准确 + 分析透彻 + 逻辑清晰 + 结论/要求到位；只罗列不理解、只分析不结论的按比例扣分。',
+    提出对策:
+      '先概括问题、再给对策；对策须具体、可行、有针对性、有主体，空泛或与问题不对应的要扣分。',
+    应用文写作:
+      '格式与要素（标题、称谓、正文、落款等，按文种）齐全 + 内容全面 + 语言得体；缺要素、文种不符、格式错误的单独扣分。',
+    文章论述:
+      '按划档给分：立意是否紧扣题意且深刻、结构是否完整、分论点是否清晰、语言是否规范流畅、字数与卷面是否符合要求。'
+  }
+  const examLine =
+    examType === '国考'
+      ? `本题属于【国考·${subType}】，按国考标准从严把握：${
+          subType === '副省级'
+            ? '更看重分析深度与思想性'
+            : subType === '地市级'
+              ? '更看重切合实际、措施可行'
+              : '更看重依法执法、规范用语与程序意识'
+        }。`
+      : `本题属于【省考${province ? `（${province}）` : ''}】，按省考标准：相对注重基层实务与可操作性，但格式、字数与表达规范同样从严。`
+  return (
+    `【评分标准：${examType}·${subType}·${type}】\n` +
+    `${examLine}\n` +
+    `${byType[type]}\n` +
+    '共性扣分项（即使要点已命中，出现下列问题也必须在该要点内扣分，不得因此给满分）：' +
+    '①忠于材料，不得拔高、不得添加材料中没有的效果或因果；' +
+    '②术语与固定表述必须准确（如“双随机、一公开”不得写成“双随机，一公开”，“跨部门联合检查”不得写成“联合调查”）；' +
+    '③条理清晰、分条作答，语言规范、不啰嗦；' +
+    '④错别字、标点及固定表述错误每处扣 0.5-1 分；' +
+    '⑤字数不足或明显超出按比例扣分。'
+  )
+}
+
 // 生成点评与范文；小题由模型逐点给出实得分，大作文由模型给档位与分数
 export async function generateFeedback(
   deepseek: DeepSeekConfig,
@@ -200,9 +238,12 @@ export async function generateFeedback(
     '你是国家公务员录用考试《申论》科目的资深阅卷专家，熟悉国考与省考申论的评分标准。' +
     '请基于给定的参考答案、采分点和评分标准，对考生作答进行客观、准确、有建设性的点评，' +
     '不得编造采分点，不得脱离材料与评分标准随意打分。' +
+    '你是本题唯一评分方：最终得分完全由你依据「考试类型 + 题型」对应的官方评分标准确定，' +
+    '必须严格按照该标准打分，软件内置的规则评分仅供参考、不得直接照搬。' +
     '打分必须从严把握、宁严勿松：要点不完整、表述不准确、逻辑混乱或格式不规范都应如实扣分，' +
     '不得因考生答案“沾边”就给出高分。所有建议必须合理、可操作。\n' +
     '点评要求（务必逐条落实）：\n' +
+    '0. 你是本题唯一评分方，最终得分完全由你依据「考试类型 + 题型」的评分标准确定；软件内置规则评分仅供参考，不得直接照搬；\n' +
     '1. 先给出细分维度得分，再给结论，不得只有笼统结论；\n' +
     '2. 主要失分点必须与实际扣分一一对应：只针对你确实扣了分的采分点（或维度）逐条列出，' +
     '每条都要说清“为什么失分”——规范要求是什么、考生实际写成了什么、应该怎么写；' +
@@ -241,14 +282,14 @@ export async function generateFeedback(
   "feedback": "综合点评：先肯定优点，再指出主要不足，结合划档标准说明失分原因，100-200字",
   "suggestions": ["改进建议1", "改进建议2", "改进建议3"],
   "modelAnswer": "给出该题的高分范文（贴近参考答案，规范、完整）",
-  "score": 数字（0-${question.score} 之间的整数，从严按评分标准给分）,
+  "score": 数字（0-${question.score} 之间、可为 0.5 倍数的得分，从严按评分标准给分）,
   "band": "${question.gradingBands?.map((b) => b.band).join('/') ?? '一类文/二类文/三类文/四类文'}"${dimensionsSchema}
 }`
     : `{
   "feedback": "综合点评：先肯定优点，再指出主要不足，结合采分点说明失分原因，100-200字",
   "suggestions": ["改进建议1", "改进建议2", "改进建议3"],
   "modelAnswer": "给出该题的高分参考答案（贴近参考答案，规范、完整）",
-  "points": [{"id": "采分点编号", "got": 数字（0 到该点满分之间的整数，该点实得分）}]${dimensionsSchema}
+  "points": [{"id": "采分点编号", "got": 数字（0 到该点满分之间、可为 0.5 倍数的实得分）}]${dimensionsSchema}
 }`
 
   const userPrompt = `【题目类型】${question.type}（${question.examType}·${question.subType}）${provinceNote}
@@ -258,16 +299,15 @@ export async function generateFeedback(
 【参考答案/范文】${question.referenceAnswer.slice(0, 3000)}
 【评分标准】${question.scoringRules}${bandInfo}${pointsInfo}${dimensionsInfo}
 
+${gradingStandard(question, province)}
+
 【本题答题骨架范式（供参考，可结合题目微调）】
 ${SKELETON_PATTERN[question.type]}
 （skeleton 只写“层级标题 + 该层写什么”，如 {"part":"一、基本情况","how":"改革背景 + 总体成效，一句话概括"}。
 严禁照抄范文，严禁出现材料中的具体事项、数据、专有名词，只保留可复用的结构与写法。）
 
-【规则评分结果】
-- 满分：${scoreResult.totalScore} 分
-- 规则得分：${scoreResult.score} 分
-- 命中要点（得分点）：${scoreResult.hitSummary.join('、') || '无'}
-- 遗漏要点（扣分点）：${scoreResult.missSummary.join('、') || '无'}
+【参考信息（仅供你参考，不作为给分依据，最终得分由你按上面的评分标准确定）】
+- 本卷满分：${scoreResult.totalScore} 分
 - 实际字数：${scoreResult.wordCount} 字（要求 ${question.wordLimit} 字以内）${scoreResult.overWordLimit ? '，已超字数' : ''}
 
 【考生作答】
@@ -276,7 +316,9 @@ ${answer.slice(0, 6000)}
 ${
   isEssay
     ? ''
-    : '逐点给分尺度：要点完整且表述准确给该点满分；要点不全、表述不准或只是“沾边”给部分分；未涉及该要点给 0 分。总分将按各采分点实得分合计得出，无需你另外给出总分。\n'
+    : '逐点给分尺度：要点完整且表述准确给该点满分；要点不全、表述不准或只是“沾边”给部分分；未涉及该要点给 0 分。' +
+      '尤其注意：即使要点已命中，只要存在术语/固定表述错误、拔高或添加材料以外的内容、层次归类混乱、错别字，' +
+      '也必须在该要点内扣分，不得给满分。总分将按各采分点实得分合计得出，无需你另外给出总分。\n'
 }
 请严格按以下 JSON 格式输出（不要输出多余文字）：
 ${outputSchema}`
@@ -379,6 +421,11 @@ function parseSkeleton(raw: unknown): SkeletonPart[] | undefined {
   return out.length > 0 ? out : undefined
 }
 
+// 得分保留到 0.5（申论阅卷的常用最小单位）
+function roundHalf(n: number): number {
+  return Math.round(n * 2) / 2
+}
+
 // 把模型评分合并进规则评分结果。
 // 小题：以模型逐点给分为准重建采分点明细，总分取各点实得分之和，
 //       从而保证「得分点合计 + 扣分点合计 = 满分」且总分与明细一致；
@@ -392,7 +439,7 @@ export function applyFeedbackScore(
   if (question.type === '文章论述' || question.scoringPoints.length === 0) {
     if (fb.band) scoreResult.band = fb.band
     if (typeof fb.score === 'number') {
-      const clamped = Math.max(0, Math.min(question.score, Math.round(fb.score)))
+      const clamped = Math.max(0, Math.min(question.score, roundHalf(fb.score)))
       scoreResult.score = clamped
       scoreResult.ratio = question.score > 0 ? clamped / question.score : 0
       scoreResult.scoredBy = 'ai'
@@ -411,7 +458,7 @@ export function applyFeedbackScore(
 
   const pointResults: PointResult[] = question.scoringPoints.map((p) => {
     const raw = gotById.get(p.id.trim())
-    const got = typeof raw === 'number' ? Math.max(0, Math.min(p.score, Math.round(raw))) : 0
+    const got = typeof raw === 'number' ? Math.max(0, Math.min(p.score, roundHalf(raw))) : 0
     return { pointId: p.id, label: p.label, score: p.score, got, hit: got > 0 }
   })
   const total = Math.min(question.score, pointResults.reduce((s, p) => s + p.got, 0))
