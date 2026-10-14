@@ -5,8 +5,9 @@
  * 用法：node scripts/copy-to-root.js [源目录]
  * 默认源目录：dist-app/win-unpacked
  *
- * 注意：这里用「逐文件 copyFileSync」而非 fs.cpSync，
- * 因为本机环境下 fs.cpSync 会导致 Node 原生崩溃。
+ * 说明：
+ * 1. 用「逐文件 copyFileSync」而非 fs.cpSync，因为本机环境下 fs.cpSync 会导致 Node 原生崩溃；
+ * 2. wokao 正在运行时其 exe 与部分资源文件被占用，脚本会跳过这些文件并给出提示。
  */
 const fs = require('fs')
 const path = require('path')
@@ -21,6 +22,7 @@ if (!fs.existsSync(src)) {
 }
 
 let copied = 0
+const skipped = []
 
 function copyDir(from, to) {
   fs.mkdirSync(to, { recursive: true })
@@ -30,17 +32,32 @@ function copyDir(from, to) {
     if (entry.isDirectory()) {
       copyDir(s, d)
     } else if (entry.isFile()) {
-      fs.copyFileSync(s, d)
-      copied += 1
+      try {
+        fs.copyFileSync(s, d)
+        copied += 1
+      } catch (err) {
+        if (err.code === 'EBUSY' || err.code === 'EPERM' || err.code === 'EACCES') {
+          skipped.push(entry.name)
+        } else {
+          throw err
+        }
+      }
     }
   }
 }
 
 try {
   copyDir(src, root)
-  console.log(`[copy-to-root] 已将最新版本复制到根目录（${copied} 个文件）：${root}`)
 } catch (err) {
   console.error(`[copy-to-root] 复制失败：${err.message}`)
-  console.error('[copy-to-root] 请确认根目录下的 wokao.exe 未在运行后重试。')
   process.exit(1)
 }
+
+if (skipped.length > 0) {
+  const sample = skipped.slice(0, 5).join('、') + (skipped.length > 5 ? ' 等' : '')
+  console.error(`[copy-to-root] 有 ${skipped.length} 个文件被占用而未能更新（${sample}）。`)
+  console.error('[copy-to-root] 通常是 wokao 正在运行。请先关闭 wokao，再重新执行 npm run dist。')
+  process.exit(1)
+}
+
+console.log(`[copy-to-root] 已将最新版本复制到根目录（${copied} 个文件）：${root}`)

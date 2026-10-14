@@ -16,16 +16,22 @@ export default function App(): JSX.Element {
   const { loading, user } = useAuth()
   const migratedRef = useRef(false)
 
-  // 历史记录自动升级：把仍是旧标准的作答记录按最新标准重评一遍（细分得分、失分点、答题骨架）
+  // 历史记录自动升级：把仍是旧标准、或「得分与失分点自相矛盾」的记录按最新标准重评一遍
   useEffect(() => {
     if (loading || !user || migratedRef.current) return
     migratedRef.current = true
     void (async () => {
       try {
         const records = await window.api.getRecords(user.id)
-        const pending = records.filter(
-          (r) => !r.dimensions?.length || !r.losses?.length || !r.skeleton?.length
-        )
+        const pending = records.filter((r) => {
+          // 缺细分得分或答题骨架：仍是旧标准的历史记录
+          if (!r.dimensions?.length || !r.skeleton?.length) return true
+          const total = r.scoreResult.totalScore
+          const isFull = total > 0 && r.scoreResult.score >= total
+          const lossCount = r.losses?.length ?? 0
+          // 满分却仍列出失分点、或有扣分却没有失分点：与得分不自洽，需按新标准重评
+          return isFull ? lossCount > 0 : lossCount === 0
+        })
         for (const r of pending) {
           await window.api.reevaluateRecord(r.id)
         }
