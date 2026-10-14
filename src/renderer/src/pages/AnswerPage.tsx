@@ -262,7 +262,8 @@ export default function AnswerPage(): JSX.Element {
   }
 
   const switchQuestion = async (): Promise<void> => {
-    const q = await window.api.randomQuestion()
+    // 换一题同样排除已作答题目，题量不足时由后端 AI 自动命题补足
+    const q = await window.api.randomQuestion(undefined, undefined, undefined, undefined, user?.id)
     if (!q) return
     setQuestions([q])
     setAnswers({})

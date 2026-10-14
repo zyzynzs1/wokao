@@ -64,6 +64,8 @@ let settings: AppSettings = DEFAULT_SETTINGS
 let sessions: PracticeSession[] = []
 // 从本地文件导入的真题卷（含解析出的题目），持久化保存
 let importedPapers: ImportedPaper[] = []
+// AI 自动命题生成的题目（题库不足以支撑练习时由大模型即时生成），持久化保存
+let generatedQuestions: Question[] = []
 
 // ---- 局域网同步状态（桌面端作为服务端）----
 export interface LanSyncState {
@@ -89,6 +91,7 @@ export function initStore(): void {
   settings = readJson<AppSettings>('settings.json', DEFAULT_SETTINGS)
   sessions = readJson<PracticeSession[]>('sessions.json', [])
   importedPapers = readJson<ImportedPaper[]>('importedPapers.json', [])
+  generatedQuestions = readJson<Question[]>('generatedQuestions.json', [])
   lanSync = { ...DEFAULT_LAN_SYNC, ...readJson<Partial<LanSyncState>>('lanSync.json', {}) }
   if (!lanSync.token) lanSync.token = randomToken()
   writeJson('lanSync.json', lanSync)
@@ -123,15 +126,23 @@ function importedQuestions(): Question[] {
 }
 
 export function getQuestions(): Question[] {
-  return [...seedQuestions, ...seedRealQuestions, ...importedQuestions()]
+  return [...seedQuestions, ...seedRealQuestions, ...generatedQuestions, ...importedQuestions()]
 }
 
 export function getQuestionById(id: string): Question | undefined {
   return (
     seedQuestions.find((q) => q.id === id) ??
     seedRealQuestions.find((q) => q.id === id) ??
+    generatedQuestions.find((q) => q.id === id) ??
     importedQuestions().find((q) => q.id === id)
   )
+}
+
+// 保存一道 AI 自动生成的题目（按 id 去重）
+export function addGeneratedQuestion(question: Question): void {
+  if (generatedQuestions.some((q) => q.id === question.id)) return
+  generatedQuestions.push(question)
+  writeJson('generatedQuestions.json', generatedQuestions)
 }
 
 export function getStudyMaterials(): StudyMaterial[] {
@@ -182,6 +193,10 @@ export function getRecordsByUser(userId: string): PracticeRecord[] {
   return records
     .filter((r) => r.userId === userId)
     .sort((a, b) => b.createdAt - a.createdAt)
+}
+// 该用户已作答过的题目 id 集合：抽题时据此排除，避免重复抽到同一道题
+export function getAnsweredQuestionIds(userId: string): Set<string> {
+  return new Set(records.filter((r) => r.userId === userId).map((r) => r.questionId))
 }
 export function addRecord(record: PracticeRecord): void {
   records.push(record)
