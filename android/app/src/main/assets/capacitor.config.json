@@ -1,0 +1,16 @@
+{
+	"appId": "com.wokao.app",
+	"appName": "wokao",
+	"webDir": "mobile-dist",
+	"android": {
+		"allowMixedContent": true
+	},
+	"server": {
+		"androidScheme": "https"
+	},
+	"plugins": {
+		"CapacitorHttp": {
+			"enabled": true
+		}
+	}
+}

@@ -12,14 +12,9 @@
     "gen:icon": "node scripts/generate-icon.js",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
-    "build:mobile": "vite build --config vite.mobile.config.ts",
-    "dev:mobile": "vite --config vite.mobile.config.ts --host --port 5174",
     "dist": "npm run gen:icon && electron-vite build && electron-builder"
   },
   "devDependencies": {
-    "@capacitor/android": "^8.5.3",
-    "@capacitor/cli": "^8.5.3",
-    "@capacitor/core": "^8.5.3",
     "@types/node": "^22.9.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
