@@ -1,9 +1,10 @@
 import type { Question } from '../../shared/types'
+import { withDifficulty, type QuestionCore } from '../../shared/difficulty'
 
 // 说明：题目均为依据国考/省考申论大纲与真题题型、评分标准整理的练习题。
 // 参考答案与采分点遵循“踩点给分（小题）”“划档给分（大作文）”的阅卷规则。
 
-export const seedQuestions: Question[] = [
+const seedQuestionList: QuestionCore[] = [
   // ============ 国考 · 副省级 ============
   {
     id: 'gk-fs-gg-01',
@@ -520,3 +521,6 @@ export const seedQuestions: Question[] = [
     source: '依据省考申论文章论述题命题规律整理'
   }
 ]
+
+// 统一按题型、分值、字数、材料长度等推导难度（0-10）
+export const seedQuestions: Question[] = withDifficulty(seedQuestionList)

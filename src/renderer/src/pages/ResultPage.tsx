@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { ExamType, PracticeRecord, Question, QuestionType } from '../../../shared/types'
+import { difficultyLabel } from '../../../shared/difficulty'
 import MarkableText from '../components/MarkableText'
 import './result.css'
 
@@ -102,6 +103,11 @@ export default function ResultPage(): JSX.Element {
               {question?.examType} · {question?.subType}
             </span>
           </div>
+          {question && (
+            <div className="result-score-meta">
+              难度 {question.difficulty}/10 · {difficultyLabel(question.difficulty)}
+            </div>
+          )}
           <div className="result-score-meta">实际字数 {scoreResult.wordCount} 字</div>
           {hasPoints && (
             <div className="result-score-meta">
