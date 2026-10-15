@@ -116,3 +116,17 @@
   color: var(--text-secondary);
   font-size: 13px;
 }
+
+/* ---- 跨设备进度同步（云盘） ---- */
+.settings-inline {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.settings-inline .input {
+  flex: 1;
+  min-width: 0;
+}
+.settings-inline .btn {
+  white-space: nowrap;
+}

@@ -3,6 +3,7 @@ import { join } from 'path'
 import { initStore } from './store'
 import { registerIpc } from './ipc'
 import { autoStartLanSync, stopLanSync } from './lanSync'
+import { autoStartProgressSync, stopProgressSync } from './progressSync'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -73,7 +74,11 @@ app.whenReady().then(() => {
   // 局域网同步服务：上次若为开启状态则自动恢复
   autoStartLanSync()
 
+  // 跨设备进度同步（云盘）：已配置同步目录时自动同步一次并开启定时同步
+  autoStartProgressSync()
+
   app.on('before-quit', () => {
+    stopProgressSync()
     void stopLanSync()
   })
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import type { AppSettings, LanSyncInfo } from '../../../shared/types'
+import type { AppSettings, LanSyncInfo, ProgressSyncInfo } from '../../../shared/types'
 import { MODEL_PRESETS, PROVINCES } from '../../../shared/types'
 import './settings.css'
 
@@ -51,6 +51,12 @@ export default function SettingsPage(): JSX.Element {
   const [lanMsg, setLanMsg] = useState('')
   const [lanBusy, setLanBusy] = useState(false)
 
+  // 跨设备进度同步（云盘共享文件夹）
+  const [progress, setProgress] = useState<ProgressSyncInfo | null>(null)
+  const [syncDirInput, setSyncDirInput] = useState('')
+  const [progressMsg, setProgressMsg] = useState('')
+  const [progressBusy, setProgressBusy] = useState(false)
+
   useEffect(() => {
     void window.api.getSettings().then((s) => {
       setSettings(s)
@@ -69,6 +75,10 @@ export default function SettingsPage(): JSX.Element {
       setLanSync(info)
       setServerUrl(info.serverUrl)
       setSyncToken(info.token)
+    })
+    void window.api.getProgressSyncInfo().then((info) => {
+      setProgress(info)
+      setSyncDirInput(info.dir)
     })
   }, [])
 
@@ -93,6 +103,8 @@ export default function SettingsPage(): JSX.Element {
     const next: AppSettings = {
       province,
       localStudyDir: localStudyDir.trim(),
+      // 同步目录由「跨设备进度同步」区块单独维护，保存 AI 设置时必须原样带过去，避免被清空
+      syncDir: settings.syncDir ?? '',
       provider: providerId,
       deepseek: { baseUrl: baseUrl.trim(), model: model.trim(), apiKey: apiKey.trim() }
     }
@@ -150,6 +162,47 @@ export default function SettingsPage(): JSX.Element {
         ? `✅ 同步完成：新增 ${res.added ?? 0} 条，本机共 ${res.total ?? 0} 条`
         : `❌ ${res.error}`
     )
+  }
+
+  // 同步目录变更后，同步更新本地 settings 状态，避免保存其他设置时把它覆盖掉
+  const applyProgressInfo = (info: ProgressSyncInfo): void => {
+    setProgress(info)
+    setSyncDirInput(info.dir)
+    setSettings((s) => (s ? { ...s, syncDir: info.dir } : s))
+  }
+
+  const pickSyncDir = async (): Promise<void> => {
+    setProgressBusy(true)
+    setProgressMsg('')
+    applyProgressInfo(await window.api.pickProgressSyncDir())
+    setProgressBusy(false)
+    setProgressMsg('已保存并同步')
+  }
+
+  const saveSyncDir = async (): Promise<void> => {
+    setProgressBusy(true)
+    setProgressMsg('')
+    applyProgressInfo(await window.api.setProgressSyncDir(syncDirInput.trim()))
+    setProgressBusy(false)
+    setProgressMsg('已保存并同步')
+  }
+
+  const runProgressSyncNow = async (): Promise<void> => {
+    setProgressBusy(true)
+    setProgressMsg('')
+    const res = await window.api.runProgressSync()
+    applyProgressInfo(await window.api.getProgressSyncInfo())
+    setProgressBusy(false)
+    setProgressMsg(
+      res.ok
+        ? `✅ 同步完成：新增作答记录 ${res.addedRecords ?? 0} 条、AI 题目 ${res.addedQuestions ?? 0} 道，本机共 ${res.total ?? 0} 条`
+        : `❌ ${res.error}`
+    )
+  }
+
+  const openSyncDir = async (): Promise<void> => {
+    const res = await window.api.openProgressSyncDir()
+    if (!res.ok) setProgressMsg(`❌ ${res.error}`)
   }
 
   return (
@@ -367,6 +420,76 @@ export default function SettingsPage(): JSX.Element {
           </>
         )}
         {lanMsg && <div className="settings-message">{lanMsg}</div>}
+      </div>
+
+      <div className="card">
+        <h3 className="settings-section">跨设备进度同步（云盘）</h3>
+        <p className="settings-hint">
+          两台电脑不在同一网络时，可借助云盘共享文件夹同步进度。本机只写自己那份文件，并读取文件夹内
+          其他电脑的文件按记录 id 合并，只新增不覆盖，因此不会互相覆盖或丢记录。同步内容为作答记录与
+          AI 自动生成的题目，不含 API Key 等设置。
+        </p>
+        <div className="settings-form">
+          <div className="settings-field">
+            <label>云盘同步文件夹</label>
+            <div className="settings-inline">
+              <input
+                className="input"
+                value={syncDirInput}
+                onChange={(e) => setSyncDirInput(e.target.value)}
+                placeholder="例如 C:\Users\你\OneDrive\wokao-sync"
+              />
+              <button className="btn btn-outline" onClick={pickSyncDir} disabled={progressBusy}>
+                选择文件夹
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="settings-row">
+          <span className="settings-label">本机标识</span>
+          <span>
+            {progress?.machine ?? '—'}
+            {progress ? `（导出文件 ${progress.myFile}）` : ''}
+          </span>
+        </div>
+        <div className="settings-row">
+          <span className="settings-label">最近同步</span>
+          <span>
+            导入 {progress?.lastImportAt ? formatTime(progress.lastImportAt) : '暂无'} · 导出{' '}
+            {progress?.lastExportAt ? formatTime(progress.lastExportAt) : '暂无'}
+            {progress && (progress.lastAddedRecords > 0 || progress.lastAddedQuestions > 0)
+              ? `（新增 ${progress.lastAddedRecords} 条记录 / ${progress.lastAddedQuestions} 道 AI 题）`
+              : ''}
+          </span>
+        </div>
+        <div className="settings-row">
+          <span className="settings-label">已发现对端</span>
+          <span>
+            {!progress || progress.peers.length === 0
+              ? '暂无其他电脑的同步文件'
+              : progress.peers
+                  .map(
+                    (p) =>
+                      `${p.machine}（${p.records} 条 / ${p.questions} 题，${
+                        p.exportedAt ? formatTime(p.exportedAt) : '未知时间'
+                      }）`
+                  )
+                  .join('；')}
+          </span>
+        </div>
+        {progress?.error && <div className="settings-message">❌ {progress.error}</div>}
+        <div className="settings-actions">
+          <button className="btn btn-outline" onClick={openSyncDir} disabled={progressBusy}>
+            打开文件夹
+          </button>
+          <button className="btn btn-outline" onClick={saveSyncDir} disabled={progressBusy}>
+            保存目录
+          </button>
+          <button className="btn btn-primary" onClick={runProgressSyncNow} disabled={progressBusy}>
+            {progressBusy ? '同步中…' : '立即同步'}
+          </button>
+        </div>
+        {progressMsg && <div className="settings-message">{progressMsg}</div>}
       </div>
 
       <div className="card">

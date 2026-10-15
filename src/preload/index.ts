@@ -45,7 +45,14 @@ const api: Api = {
   setLanSyncServer: (enabled) => ipcRenderer.invoke(enabled ? 'lanSync:start' : 'lanSync:stop'),
   regenerateSyncToken: () => ipcRenderer.invoke('lanSync:regenerateToken'),
   saveLanSyncClient: () => ipcRenderer.invoke('lanSync:info'),
-  runLanSync: () => ipcRenderer.invoke('lanSync:run')
+  runLanSync: () => ipcRenderer.invoke('lanSync:run'),
+
+  // 跨设备进度同步（云盘共享文件夹）
+  getProgressSyncInfo: () => ipcRenderer.invoke('progressSync:info'),
+  setProgressSyncDir: (dir) => ipcRenderer.invoke('progressSync:setDir', dir),
+  pickProgressSyncDir: () => ipcRenderer.invoke('progressSync:pickDir'),
+  runProgressSync: () => ipcRenderer.invoke('progressSync:run'),
+  openProgressSyncDir: () => ipcRenderer.invoke('progressSync:openDir')
 }
 
 contextBridge.exposeInMainWorld('api', api)
