@@ -9,6 +9,8 @@ import type {
   PracticeRecord,
   PracticeSession,
   PredictionItem,
+  ProgressSyncInfo,
+  ProgressSyncResult,
   Question,
   QuestionType,
   SafeUser,
@@ -94,4 +96,11 @@ export interface Api {
   regenerateSyncToken: () => Promise<LanSyncInfo>
   saveLanSyncClient: (serverUrl: string, token: string) => Promise<LanSyncInfo>
   runLanSync: () => Promise<LanSyncResult>
+
+  // 跨设备进度同步（云盘共享文件夹）：每台电脑只写自己那份文件，按 id 合并
+  getProgressSyncInfo: () => Promise<ProgressSyncInfo>
+  setProgressSyncDir: (dir: string) => Promise<ProgressSyncInfo>
+  pickProgressSyncDir: () => Promise<ProgressSyncInfo>
+  runProgressSync: () => Promise<ProgressSyncResult>
+  openProgressSyncDir: () => Promise<{ ok: boolean; error?: string }>
 }

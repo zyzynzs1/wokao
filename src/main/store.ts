@@ -145,6 +145,27 @@ export function addGeneratedQuestion(question: Question): void {
   writeJson('generatedQuestions.json', generatedQuestions)
 }
 
+export function getGeneratedQuestions(): Question[] {
+  return generatedQuestions.slice()
+}
+
+// 按 id 合并外部导入的 AI 生成题目：只新增、不覆盖，返回新增条数
+export function mergeGeneratedQuestions(incoming: unknown): number {
+  if (!Array.isArray(incoming)) return 0
+  const ids = new Set(generatedQuestions.map((q) => q.id))
+  let added = 0
+  for (const raw of incoming) {
+    const q = raw as Question
+    if (!q || typeof q.id !== 'string' || !q.id || ids.has(q.id)) continue
+    if (typeof q.material !== 'string' || !Array.isArray(q.scoringPoints)) continue
+    generatedQuestions.push(q)
+    ids.add(q.id)
+    added++
+  }
+  if (added > 0) writeJson('generatedQuestions.json', generatedQuestions)
+  return added
+}
+
 export function getStudyMaterials(): StudyMaterial[] {
   return seedStudy
 }
@@ -168,7 +189,7 @@ export function findUserById(id: string): User | undefined {
   return users.find((u) => u.id === id)
 }
 
-const DEFAULT_USER_ID = 'local-default-user'
+export const DEFAULT_USER_ID = 'local-default-user'
 
 // 无登录流程，使用固定的本地默认用户，保证历史记录可持久化
 export function ensureDefaultUser(): User {

@@ -1,4 +1,4 @@
-import { ipcMain, shell } from 'electron'
+import { dialog, ipcMain, shell } from 'electron'
 import { randomUUID } from 'crypto'
 import { readdirSync, existsSync, statSync } from 'fs'
 import { join } from 'path'
@@ -23,6 +23,12 @@ import { filterByBand, findBand, inBand } from '../shared/difficulty'
 import { applyFeedbackScore, buildDimensions, generateFeedback, generateQuestion, testConnection } from './llm'
 import type { QuestionSpec } from './llm'
 import { getLanSyncInfo, regenerateSyncToken, startLanSync, stopLanSync } from './lanSync'
+import {
+  getProgressSyncDir,
+  getProgressSyncInfo,
+  runProgressSync,
+  setProgressSyncDir
+} from './progressSync'
 import { scoreAnswer } from './scoring'
 import {
   addGeneratedQuestion,
@@ -453,6 +459,26 @@ export function registerIpc(): void {
     ok: false,
     error: '桌面端是同步服务端，请在手机端发起同步'
   }))
+
+  // ---- 跨设备进度同步（云盘共享文件夹）----
+  ipcMain.handle('progressSync:info', () => getProgressSyncInfo())
+  ipcMain.handle('progressSync:setDir', (_e, dir: string) => setProgressSyncDir(dir))
+  ipcMain.handle('progressSync:pickDir', async () => {
+    const res = await dialog.showOpenDialog({
+      title: '选择云盘同步文件夹',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (res.canceled || res.filePaths.length === 0) return getProgressSyncInfo()
+    return setProgressSyncDir(res.filePaths[0])
+  })
+  ipcMain.handle('progressSync:run', () => runProgressSync())
+  ipcMain.handle('progressSync:openDir', async () => {
+    const dir = getProgressSyncDir()
+    if (!dir) return { ok: false, error: '尚未设置同步目录' }
+    if (!existsSync(dir)) return { ok: false, error: '同步目录不存在，请确认云盘已同步到本机' }
+    const err = await shell.openPath(dir)
+    return err ? { ok: false, error: err } : { ok: true }
+  })
 }
 
 // 扫描本地学习资料目录，按子文件夹分组返回可打开的文件
