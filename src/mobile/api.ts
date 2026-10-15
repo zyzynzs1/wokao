@@ -11,6 +11,8 @@ import type {
   PracticeSession,
   PracticeType,
   PredictionItem,
+  ProgressSyncInfo,
+  ProgressSyncResult,
   Question,
   QuestionType,
   SafeUser,
@@ -628,5 +630,33 @@ export const mobileApi: Api = {
     write(K.lanSync, { ...cfg, lastSyncAt: Date.now() })
 
     return { ok: true, added, total: merged.length }
-  }
+  },
+
+  // ---- 跨设备进度同步（云盘文件夹）：仅桌面端支持，手机端无文件系统访问能力 ----
+  getProgressSyncInfo: async (): Promise<ProgressSyncInfo> => ({
+    dir: '',
+    enabled: false,
+    machine: '',
+    myFile: '',
+    lastImportAt: null,
+    lastExportAt: null,
+    lastAddedRecords: 0,
+    lastAddedQuestions: 0,
+    peers: [],
+    error: '手机端不支持云盘文件夹同步，请在电脑端使用'
+  }),
+
+  setProgressSyncDir: async (): Promise<ProgressSyncInfo> => mobileApi.getProgressSyncInfo(),
+
+  pickProgressSyncDir: async (): Promise<ProgressSyncInfo> => mobileApi.getProgressSyncInfo(),
+
+  runProgressSync: async (): Promise<ProgressSyncResult> => ({
+    ok: false,
+    error: '手机端不支持云盘文件夹同步，请在电脑端使用'
+  }),
+
+  openProgressSyncDir: async () => ({
+    ok: false,
+    error: '手机端不支持云盘文件夹同步，请在电脑端使用'
+  })
 }

@@ -330,6 +330,7 @@ export const NO_KEY_FEEDBACK =
 export interface AppSettings {
   province: string // 省考目标省份，默认辽宁
   localStudyDir: string // 本地学习资料目录
+  syncDir?: string // 跨设备进度同步目录（云盘共享文件夹），留空表示不启用
   provider?: string // 当前选中的服务商预设 id（用于设置页回显）
   deepseek: {
     baseUrl: string
@@ -358,4 +359,36 @@ export interface LanSyncResult {
   error?: string
   added?: number // 本次从对方合并进来的条数
   total?: number // 合并后本机总记录数
+}
+
+// ---- 跨设备进度同步（云盘共享文件夹）----
+// 每台电脑只写自己命名的那份文件，读取目录内所有对端文件并按 id 合并，避免互相覆盖
+export interface ProgressSyncPeer {
+  file: string // 对端文件名
+  machine: string // 对端机器标识
+  records: number // 文件内作答记录条数
+  questions: number // 文件内 AI 生成题目条数
+  exportedAt: number // 对端最近导出时间
+}
+
+export interface ProgressSyncInfo {
+  dir: string // 当前配置的同步目录
+  enabled: boolean // 是否已配置可用目录
+  machine: string // 本机标识（用于命名导出文件）
+  myFile: string // 本机导出文件名
+  lastImportAt: number | null // 最近一次导入时间
+  lastExportAt: number | null // 最近一次导出时间
+  lastAddedRecords: number // 最近一次导入新增的作答记录数
+  lastAddedQuestions: number // 最近一次导入新增的 AI 题目数
+  peers: ProgressSyncPeer[] // 目录内发现的对端文件
+  error?: string // 目录不可用等错误信息
+}
+
+export interface ProgressSyncResult {
+  ok: boolean
+  error?: string
+  addedRecords?: number
+  addedQuestions?: number
+  peers?: number // 本次参与合并的对端文件数
+  total?: number // 合并后本机作答记录总数
 }
