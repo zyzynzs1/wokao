@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import type { ExamType, PracticeRecord, PredictionItem, Question, QuestionType } from '../../../shared/types'
+import { questionMatchTopic, secondLevelTopics, topicLabel, TOPIC_TREE } from '../../../shared/topics'
 import './home.css'
 
 type TabKey = '国考' | '省考'
@@ -63,6 +64,8 @@ export default function HomePage(): JSX.Element {
   const [questions, setQuestions] = useState<Question[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<TabKey>('国考')
+  // 话题掌握程度：展开的一级领域（点击切换）
+  const [openDomain, setOpenDomain] = useState<string | null>(null)
   // 从结果页返回时带回 detail，直接恢复到原来的题型详情弹窗
   const [detail, setDetail] = useState<{ type: QuestionType; examType: ExamType } | null>(
     () =>
@@ -100,6 +103,29 @@ export default function HomePage(): JSX.Element {
     () => items.filter((p) => p.count > 0 && (p.avgRatio ?? 0) < 0.6).sort((a, b) => (a.avgRatio ?? 0) - (b.avgRatio ?? 0)),
     [items]
   )
+
+  // 话题掌握程度（一级领域 + 二级话题）：按当前国考/省考标签统计得分率
+  const topicStats = useMemo(() => {
+    const qMap = new Map(questions.map((q) => [q.id, q]))
+    const tabRecords = records.filter((r) => qMap.get(r.questionId)?.examType === tab)
+    const statOf = (filter: string): { avg: number | null; count: number } => {
+      let sum = 0
+      let count = 0
+      for (const r of tabRecords) {
+        const q = qMap.get(r.questionId)
+        if (!q || !questionMatchTopic(q.topics, filter)) continue
+        sum += r.scoreResult.ratio || 0
+        count += 1
+      }
+      return { avg: count > 0 ? sum / count : null, count }
+    }
+    const map = new Map<string, { avg: number | null; count: number }>()
+    for (const d of TOPIC_TREE) {
+      map.set(d.id, statOf(d.id))
+      for (const s of d.children ?? []) map.set(s.id, statOf(s.id))
+    }
+    return map
+  }, [records, questions, tab])
 
   const detailRecords = useMemo(() => {
     if (!detail) return []
@@ -139,6 +165,27 @@ export default function HomePage(): JSX.Element {
 
   const radarRatios = FIVE_TYPES.map((t) => itemMap.get(t)?.avgRatio ?? 0)
   const radarDataPoints = radarPoints(radarRatios, 180, 170, 118)
+
+  // 掌握详情内的话题统计：按二级话题归集当前题型下各次作答的得分率
+  const detailTopicStats = useMemo(() => {
+    const qMap = new Map(questions.map((q) => [q.id, q]))
+    const acc = new Map<string, { sum: number; count: number }>()
+    for (const r of detailRecords) {
+      const q = qMap.get(r.questionId)
+      if (!q || !q.topics) continue
+      for (const t of q.topics) {
+        const parts = t.split('/')
+        const path = parts.slice(0, 2).join('/') // 归并到二级话题
+        const cur = acc.get(path) ?? { sum: 0, count: 0 }
+        cur.sum += r.scoreResult.ratio || 0
+        cur.count += 1
+        acc.set(path, cur)
+      }
+    }
+    return Array.from(acc.entries())
+      .map(([path, v]) => ({ path, label: topicLabel(path), avg: v.sum / v.count, count: v.count }))
+      .sort((a, b) => b.count - a.count)
+  }, [detailRecords, questions])
 
   return (
     <div>
@@ -274,6 +321,78 @@ export default function HomePage(): JSX.Element {
         )}
       </div>
 
+      <div className="card">
+        <div className="home-section-title">
+          <span>话题掌握程度</span>
+          <span className="home-section-hint">
+            按「五位一体」话题领域统计得分率，点击领域可展开二级话题（{tab}）
+          </span>
+        </div>
+
+        {loading ? (
+          <div className="empty">加载中…</div>
+        ) : (
+          <div className="mastery-list">
+            {TOPIC_TREE.map((d) => {
+              const stat = topicStats.get(d.id) ?? { avg: null, count: 0 }
+              const lv = levelInfo(stat.avg)
+              const open = openDomain === d.id
+              return (
+                <div key={d.id} className="topic-block">
+                  <div className="mastery-row topic-domain-row" onClick={() => setOpenDomain(open ? null : d.id)}>
+                    <div className="mastery-row-head">
+                      <span className="mastery-type">
+                        <span className="topic-caret">{open ? '▾' : '▸'}</span> {d.label}
+                      </span>
+                      <span className={`mastery-level ${lv.cls}`}>{lv.label}</span>
+                    </div>
+                    <div className="mastery-bar">
+                      <div
+                        className="mastery-bar-fill"
+                        style={{ width: `${((stat.avg ?? 0) * 100).toFixed(0)}%`, background: lv.color }}
+                      />
+                    </div>
+                    <div className="mastery-meta">
+                      <span>{stat.avg === null ? '暂无记录' : `得分率 ${(stat.avg * 100).toFixed(0)}%`}</span>
+                      <span>练习 {stat.count} 次</span>
+                    </div>
+                  </div>
+
+                  {open && (
+                    <div className="topic-sub-list">
+                      {secondLevelTopics(d.id).map((s) => {
+                        const ss = topicStats.get(s.id) ?? { avg: null, count: 0 }
+                        const slv = levelInfo(ss.avg)
+                        return (
+                          <div key={s.id} className="topic-sub-row">
+                            <span className="topic-sub-name">{s.label}</span>
+                            <div className="mastery-bar topic-sub-bar">
+                              <div
+                                className="mastery-bar-fill"
+                                style={{ width: `${((ss.avg ?? 0) * 100).toFixed(0)}%`, background: slv.color }}
+                              />
+                            </div>
+                            <span className={`mastery-level ${slv.cls}`}>{slv.label}</span>
+                            <span className="topic-sub-count">{ss.count} 次</span>
+                            <button
+                              className="topic-sub-go"
+                              title={`基于「${s.label}」话题随机练习`}
+                              onClick={() => navigate('/practice', { state: { topic: s.id } })}
+                            >
+                              去练习 →
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
       {!loading && weakItems.length > 0 && (
         <div className="card home-suggest">
           <div className="home-section-title">
@@ -323,6 +442,33 @@ export default function HomePage(): JSX.Element {
                       <div className="detail-stat-label">最低得分率</div>
                     </div>
                   </div>
+
+                  {detailTopicStats.length > 0 && (
+                    <div className="detail-section">
+                      <h4 className="detail-section-title">📊 话题掌握分布（按二级话题）</h4>
+                      <div className="detail-topics">
+                        {detailTopicStats.map((t) => {
+                          const lv = levelInfo(t.avg)
+                          return (
+                            <div key={t.path} className="detail-topic-row">
+                              <span className="detail-topic-name" title={t.path}>
+                                {t.label}
+                              </span>
+                              <div className="mastery-bar detail-topic-bar">
+                                <div
+                                  className="mastery-bar-fill"
+                                  style={{ width: `${(t.avg * 100).toFixed(0)}%`, background: lv.color }}
+                                />
+                              </div>
+                              <span className="detail-topic-ratio">{(t.avg * 100).toFixed(0)}%</span>
+                              <span className={`mastery-level ${lv.cls}`}>{lv.label}</span>
+                              <span className="detail-topic-count">{t.count} 次</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   {detailMiss.length > 0 && (
                     <div className="detail-section">

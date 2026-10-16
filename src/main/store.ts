@@ -15,6 +15,7 @@ import type {
 import { seedQuestions } from './data/questions'
 import { seedRealPapers, seedRealQuestions } from './data/realPapers'
 import { seedStudy } from './data/study'
+import { BUILTIN_TOPICS } from './data/topicMap'
 
 // 数据目录：userData/data
 let dataDir = ''
@@ -125,17 +126,26 @@ function importedQuestions(): Question[] {
   return importedPapers.flatMap((p) => p.questions)
 }
 
+// 给内置题目补上话题标签（AI 生成题自带 topics，导入题暂不打标）
+function withTopics(q: Question): Question {
+  if (q.topics && q.topics.length > 0) return q
+  const topics = BUILTIN_TOPICS[q.id]
+  return topics ? { ...q, topics } : q
+}
+
 export function getQuestions(): Question[] {
-  return [...seedQuestions, ...seedRealQuestions, ...generatedQuestions, ...importedQuestions()]
+  return [...seedQuestions, ...seedRealQuestions, ...generatedQuestions, ...importedQuestions()].map(
+    withTopics
+  )
 }
 
 export function getQuestionById(id: string): Question | undefined {
-  return (
+  const q =
     seedQuestions.find((q) => q.id === id) ??
     seedRealQuestions.find((q) => q.id === id) ??
     generatedQuestions.find((q) => q.id === id) ??
     importedQuestions().find((q) => q.id === id)
-  )
+  return q ? withTopics(q) : undefined
 }
 
 // 保存一道 AI 自动生成的题目（按 id 去重）

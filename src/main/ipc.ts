@@ -20,6 +20,7 @@ import type {
 } from '../shared/types'
 import { NO_KEY_FEEDBACK } from '../shared/types'
 import { filterByBand, findBand, inBand } from '../shared/difficulty'
+import { filterByTopic } from '../shared/topics'
 import { applyFeedbackScore, buildDimensions, generateFeedback, generateQuestion, testConnection } from './llm'
 import type { QuestionSpec } from './llm'
 import { getLanSyncInfo, regenerateSyncToken, startLanSync, stopLanSync } from './lanSync'
@@ -90,7 +91,8 @@ function inferSpec(
   type?: QuestionType,
   examType?: ExamType,
   province?: string,
-  difficultyId?: string
+  difficultyId?: string,
+  topic?: string
 ): QuestionSpec {
   const et: ExamType = examType ?? pickRandom(['国考', '省考'] as ExamType[]) ?? '国考'
   const st = pickRandom(SUB_TYPES[et]) ?? SUB_TYPES[et][0]
@@ -100,7 +102,8 @@ function inferSpec(
     province: et === '省考' ? (province ?? getSettings().province) : undefined,
     type: type ?? pickRandom(ALL_TYPES) ?? '归纳概括',
     difficultyId,
-    targetDifficulty: bandTarget(difficultyId)
+    targetDifficulty: bandTarget(difficultyId),
+    topic
   }
 }
 
@@ -123,14 +126,21 @@ async function generateAndStore(spec: QuestionSpec): Promise<Question | null> {
 }
 
 // 组卷候选池：先按子类 / 考试类型过滤，省考优先匹配所选省份
-function paperPool(subType: SubType, examType: ExamType, province?: string): Question[] {
+function paperPool(
+  subType: SubType,
+  examType: ExamType,
+  province?: string,
+  topic?: string
+): Question[] {
   let pool = getQuestions().filter((q) => q.subType === subType && q.examType === examType)
   if (examType === '省考') {
     const byProvince = pool.filter((q) => q.province === province)
     const generic = pool.filter((q) => !q.province || q.province === '通用')
     if (byProvince.length > 0 || generic.length > 0) pool = [...byProvince, ...generic]
   }
-  return pool
+  // 话题为可选条件：命中该话题（含下级）的题目优先
+  const byTopic = filterByTopic(pool, topic)
+  return byTopic.length > 0 ? byTopic : pool
 }
 
 // 组卷抽题：优先抽取未作答题目 → 不足则由 AI 自动命题 → 仍不可用才允许重复
@@ -140,9 +150,10 @@ async function pickByType(
   examType: ExamType,
   province?: string,
   difficultyId?: string,
-  answered?: Set<string>
+  answered?: Set<string>,
+  topic?: string
 ): Promise<Question[]> {
-  const pool = paperPool(subType, examType, province)
+  const pool = paperPool(subType, examType, province, topic)
   const band = findBand(difficultyId)
   const target = bandTarget(difficultyId)
   const picked: Question[] = []
@@ -163,7 +174,8 @@ async function pickByType(
           province,
           type: t,
           difficultyId,
-          targetDifficulty: target
+          targetDifficulty: target,
+          topic
         })) ?? undefined
     }
     // AI 不可用 / 生成失败时退回已作答题目（允许重复），保证整卷结构完整
@@ -181,11 +193,12 @@ async function buildPaper(
   subType: SubType,
   province?: string,
   difficultyId?: string,
-  answered?: Set<string>
+  answered?: Set<string>,
+  topic?: string
 ): Promise<Paper> {
   const structure = PAPER_STRUCTURES.find((s) => s.examType === examType && s.subType === subType)
   const types = structure?.types ?? ['归纳概括', '综合分析', '提出对策', '应用文写作', '文章论述']
-  const questions = await pickByType(types, subType, examType, province, difficultyId, answered)
+  const questions = await pickByType(types, subType, examType, province, difficultyId, answered, topic)
   const totalScore = questions.reduce((s, q) => s + q.score, 0)
   const suggestMinutes = questions.reduce((s, q) => s + q.suggestMinutes, 0)
   const title =
@@ -249,7 +262,8 @@ export function registerIpc(): void {
       examType?: ExamType,
       province?: string,
       difficultyId?: string,
-      userId?: string
+      userId?: string,
+      topic?: string
     ) => {
       const answered = userId ? getAnsweredQuestionIds(userId) : undefined
       let pool = getQuestions()
@@ -262,12 +276,15 @@ export function registerIpc(): void {
       }
       // 按难度档位筛选；档位内无题时兜底返回，保证仍能出题
       pool = filterByBand(pool, findBand(difficultyId))
+      // 话题为可选条件：命中该话题（含下级）的题目优先，未命中则退回全部候选
+      const byTopic = filterByTopic(pool, topic)
+      if (byTopic.length > 0) pool = byTopic
       // 优先抽未作答过的题目，避免重复练习
       const fresh = answered ? pool.filter((q) => !answered.has(q.id)) : pool
       const picked = pickRandom(fresh)
       if (picked) return picked
-      // 未作答题目已用尽 → 由 AI 按「考试类型 + 知识点 + 难度 + 给分点」自动命题
-      const generated = await generateAndStore(inferSpec(type, examType, province, difficultyId))
+      // 未作答题目已用尽 → 由 AI 按「考试类型 + 知识点 + 难度 + 话题 + 给分点」自动命题
+      const generated = await generateAndStore(inferSpec(type, examType, province, difficultyId, topic))
       if (generated) return generated
       // 未配置 Key / 生成失败 → 退回全部候选（允许重复），保证仍能出题
       return pickRandom(pool) ?? null
@@ -287,7 +304,8 @@ export function registerIpc(): void {
       subType: SubType,
       province?: string,
       difficultyId?: string,
-      userId?: string
+      userId?: string,
+      topic?: string
     ) => {
       // 组卷优先使用未作答题目，题量不足时由 AI 自动命题补足
       const paper = await buildPaper(
@@ -295,7 +313,8 @@ export function registerIpc(): void {
         subType,
         province,
         difficultyId,
-        userId ? getAnsweredQuestionIds(userId) : undefined
+        userId ? getAnsweredQuestionIds(userId) : undefined,
+        topic
       )
       addPaper(paper)
       return paper

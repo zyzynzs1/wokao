@@ -85,6 +85,7 @@ export interface Question {
   examType: ExamType
   subType: SubType
   province?: string // 省考题目标注省份；'通用' 表示适用于各省
+  topics?: string[] // 话题标签（三级路径，如 '社会/民生保障/养老服务与一老一小'），见 shared/topics.ts
   title: string // 题干/作答要求
   material: string // 给定资料
   requirement: string // 作答要求（分值/字数等说明）
