@@ -463,6 +463,13 @@ export default function HomePage(): JSX.Element {
                               <span className="detail-topic-ratio">{(t.avg * 100).toFixed(0)}%</span>
                               <span className={`mastery-level ${lv.cls}`}>{lv.label}</span>
                               <span className="detail-topic-count">{t.count} 次</span>
+                              <button
+                                className="topic-sub-go"
+                                title={`基于「${t.label}」话题随机练习`}
+                                onClick={() => navigate('/practice', { state: { topic: t.path } })}
+                              >
+                                去练习 →
+                              </button>
                             </div>
                           )
                         })}
