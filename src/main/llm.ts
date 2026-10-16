@@ -288,7 +288,7 @@ export async function generateFeedback(
     ? `{
   "feedback": "综合点评：先肯定优点，再指出主要不足，结合划档标准说明失分原因，100-200字",
   "suggestions": ["改进建议1", "改进建议2", "改进建议3"],
-  "modelAnswer": "给出该题的高分范文（贴近参考答案，规范、完整）",
+  "modelAnswer": "给出该题的高分范文：必须完整成篇，正文字数符合【作答要求】中的字数规定（如要求 1000—1200 字，则正文不得少于 1000 字、不超过 1200 字），贴近参考答案的立意与结构，规范、充实，严禁只写提纲、要点罗列或缩写",
   "score": 数字（0-${question.score} 之间、可为 0.5 倍数的得分，从严按评分标准给分）,
   "band": "${question.gradingBands?.map((b) => b.band).join('/') ?? '一类文/二类文/三类文/四类文'}"${dimensionsSchema}
 }`
@@ -307,6 +307,11 @@ export async function generateFeedback(
 【评分标准】${question.scoringRules}${bandInfo}${pointsInfo}${dimensionsInfo}
 
 ${gradingStandard(question, province)}
+${
+  isEssay
+    ? `\n【范文硬性要求】modelAnswer 必须是完整成篇的高分范文，正文字数须达到【作答要求】规定的字数下限、且不超过上限（例如要求“1000—1200 字”，则正文控制在 1000—1200 字）；不得用提纲、要点罗列、缩写或“（略）”代替；参考上方的立意与结构，用自己的语言充分展开论证。`
+    : ''
+}
 
 【本题答题骨架范式（供参考，可结合题目微调）】
 ${SKELETON_PATTERN[question.type]}
