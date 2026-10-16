@@ -24,9 +24,11 @@ import type {
 import { NO_KEY_FEEDBACK } from '../shared/types'
 import type { Api, ReevaluateResult, SubmitPayload, SubmitResult } from '../shared/api'
 import { filterByBand, findBand, inBand } from '../shared/difficulty'
+import { filterByTopic } from '../shared/topics'
 import { seedQuestions } from '../main/data/questions'
 import { seedRealPapers, seedRealQuestions } from '../main/data/realPapers'
 import { seedStudy } from '../main/data/study'
+import { BUILTIN_TOPICS } from '../main/data/topicMap'
 import { scoreAnswer } from '../main/scoring'
 import { applyFeedbackScore, buildDimensions, generateFeedback, generateQuestion, testConnection } from '../main/llm'
 import type { QuestionSpec } from '../main/llm'
@@ -114,24 +116,31 @@ function saveGenerated(list: Question[]): void {
   write(K.generatedQuestions, list)
 }
 
+// 给内置题目补上话题标签（AI 生成题自带 topics，导入题暂不打标）
+function withTopics(q: Question): Question {
+  if (q.topics && q.topics.length > 0) return q
+  const topics = BUILTIN_TOPICS[q.id]
+  return topics ? { ...q, topics } : q
+}
+
 function allQuestions(): Question[] {
   return [
     ...seedQuestions,
     ...seedRealQuestions,
     ...loadGenerated(),
     ...loadImported().flatMap((p) => p.questions)
-  ]
+  ].map(withTopics)
 }
 
 function findQuestion(id: string): Question | undefined {
-  return (
+  const q =
     seedQuestions.find((q) => q.id === id) ??
     seedRealQuestions.find((q) => q.id === id) ??
     loadGenerated().find((q) => q.id === id) ??
     loadImported()
       .flatMap((p) => p.questions)
       .find((q) => q.id === id)
-  )
+  return q ? withTopics(q) : undefined
 }
 
 // ---- 设置 ----
@@ -207,7 +216,8 @@ function inferSpec(
   type?: QuestionType,
   examType?: ExamType,
   province?: string,
-  difficultyId?: string
+  difficultyId?: string,
+  topic?: string
 ): QuestionSpec {
   const et: ExamType = examType ?? pickRandom(['国考', '省考'] as ExamType[]) ?? '国考'
   const st = pickRandom(SUB_TYPES[et]) ?? SUB_TYPES[et][0]
@@ -217,7 +227,8 @@ function inferSpec(
     province: et === '省考' ? (province ?? loadSettings().province) : undefined,
     type: type ?? pickRandom(ALL_TYPES) ?? '归纳概括',
     difficultyId,
-    targetDifficulty: bandTarget(difficultyId)
+    targetDifficulty: bandTarget(difficultyId),
+    topic
   }
 }
 
@@ -243,14 +254,17 @@ async function generateAndStore(spec: QuestionSpec): Promise<Question | null> {
   }
 }
 
-// 组卷候选池：先按子类 / 考试类型过滤，省考优先匹配所选省份
-function paperPool(subType: SubType, examType: ExamType, province?: string): Question[] {
+// 组卷候选池：先按子类 / 考试类型过滤，省考优先匹配所选省份；话题为可选条件，命中优先
+function paperPool(subType: SubType, examType: ExamType, province?: string, topic?: string): Question[] {
   let pool = allQuestions().filter((q) => q.subType === subType && q.examType === examType)
   if (examType === '省考') {
     const byProvince = pool.filter((q) => q.province === province)
     const generic = pool.filter((q) => !q.province || q.province === '通用')
     if (byProvince.length > 0 || generic.length > 0) pool = [...byProvince, ...generic]
   }
+  // 话题为可选条件：命中该话题（含下级）的题目优先，未命中则退回全部候选
+  const byTopic = filterByTopic(pool, topic)
+  if (byTopic.length > 0) pool = byTopic
   return pool
 }
 
@@ -261,9 +275,10 @@ async function pickByType(
   examType: ExamType,
   province?: string,
   difficultyId?: string,
-  answered?: Set<string>
+  answered?: Set<string>,
+  topic?: string
 ): Promise<Question[]> {
-  const pool = paperPool(subType, examType, province)
+  const pool = paperPool(subType, examType, province, topic)
   const band = findBand(difficultyId)
   const target = bandTarget(difficultyId)
   const picked: Question[] = []
@@ -284,7 +299,8 @@ async function pickByType(
           province,
           type: t,
           difficultyId,
-          targetDifficulty: target
+          targetDifficulty: target,
+          topic
         })) ?? undefined
     }
     // AI 不可用 / 生成失败时退回已作答题目（允许重复），保证整卷结构完整
@@ -302,11 +318,12 @@ async function buildPaper(
   subType: SubType,
   province?: string,
   difficultyId?: string,
-  answered?: Set<string>
+  answered?: Set<string>,
+  topic?: string
 ): Promise<Paper> {
   const structure = PAPER_STRUCTURES.find((s) => s.examType === examType && s.subType === subType)
   const types = structure?.types ?? ['归纳概括', '综合分析', '提出对策', '应用文写作', '文章论述']
-  const questions = await pickByType(types, subType, examType, province, difficultyId, answered)
+  const questions = await pickByType(types, subType, examType, province, difficultyId, answered, topic)
   const totalScore = questions.reduce((s, q) => s + q.score, 0)
   const suggestMinutes = questions.reduce((s, q) => s + q.suggestMinutes, 0)
   const title =
@@ -378,7 +395,8 @@ export const mobileApi: Api = {
     examType?: ExamType,
     province?: string,
     difficultyId?: string,
-    userId?: string
+    userId?: string,
+    topic?: string
   ) => {
     const answered = answeredIds(userId)
     let pool = allQuestions()
@@ -389,14 +407,17 @@ export const mobileApi: Api = {
       const generic = pool.filter((q) => !q.province || q.province === '通用')
       if (byProvince.length > 0 || generic.length > 0) pool = [...byProvince, ...generic]
     }
+    // 话题为可选条件：命中该话题（含下级）的题目优先，未命中则退回全部候选
+    const byTopic = filterByTopic(pool, topic)
+    if (byTopic.length > 0) pool = byTopic
     // 按难度档位筛选；档位内无题时兜底返回，保证仍能出题
     pool = filterByBand(pool, findBand(difficultyId))
     // 优先抽未作答过的题目，避免重复练习
     const fresh = answered ? pool.filter((q) => !answered.has(q.id)) : pool
     const picked = pickRandom(fresh)
     if (picked) return picked
-    // 未作答题目已用尽 → 由 AI 按「考试类型 + 知识点 + 难度 + 给分点」自动命题
-    const generated = await generateAndStore(inferSpec(type, examType, province, difficultyId))
+    // 未作答题目已用尽 → 由 AI 按「考试类型 + 知识点 + 话题 + 难度 + 给分点」自动命题
+    const generated = await generateAndStore(inferSpec(type, examType, province, difficultyId, topic))
     if (generated) return generated
     // 未配置 Key / 生成失败 → 退回全部候选（允许重复），保证仍能出题
     return pickRandom(pool) ?? null
@@ -405,8 +426,8 @@ export const mobileApi: Api = {
     ['归纳概括', '综合分析', '提出对策', '应用文写作', '文章论述'] as QuestionType[],
 
   getPapers: async () => loadPapers().sort((a, b) => b.createdAt - a.createdAt),
-  generatePaper: async (examType, subType, province, difficultyId, userId) => {
-    const paper = await buildPaper(examType, subType, province, difficultyId, answeredIds(userId))
+  generatePaper: async (examType, subType, province, difficultyId, userId, topic) => {
+    const paper = await buildPaper(examType, subType, province, difficultyId, answeredIds(userId), topic)
     const papers = loadPapers()
     papers.push(paper)
     savePapers(papers)

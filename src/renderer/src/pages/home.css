@@ -247,6 +247,68 @@
   font-size: 12px;
 }
 
+/* ---- 话题掌握程度 ---- */
+.topic-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.topic-domain-row {
+  cursor: pointer;
+}
+.topic-caret {
+  display: inline-block;
+  width: 14px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.topic-sub-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-left: 4px;
+  border-left: 2px solid var(--border);
+  background: #fafbfc;
+  border-radius: 8px;
+}
+.topic-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.topic-sub-name {
+  flex: 0 0 168px;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.topic-sub-bar {
+  flex: 1;
+  height: 8px;
+}
+.topic-sub-count {
+  flex: 0 0 48px;
+  text-align: right;
+  color: var(--text-secondary);
+}
+.topic-sub-go {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+}
+.topic-sub-go:hover {
+  text-decoration: underline;
+}
+
 .home-suggest {
   margin-top: 20px;
   padding: 18px 20px;
@@ -381,6 +443,40 @@
   background: #fef3c7;
   padding: 1px 8px;
   border-radius: 999px;
+}
+/* ---- 掌握详情：话题掌握分布 ---- */
+.detail-topics {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.detail-topic-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.detail-topic-name {
+  flex: 0 0 150px;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.detail-topic-bar {
+  flex: 1;
+  height: 8px;
+}
+.detail-topic-ratio {
+  flex: 0 0 40px;
+  text-align: right;
+  font-weight: 600;
+  color: #374151;
+}
+.detail-topic-count {
+  flex: 0 0 44px;
+  text-align: right;
+  color: var(--text-secondary);
 }
 .detail-records {
   display: flex;
