@@ -44,12 +44,14 @@ export interface Api {
   getQuestions: () => Promise<Question[]>
   getQuestion: (id: string) => Promise<Question | undefined>
   // userId 用于排除该用户已作答过的题目（避免重复抽题）；题目不足时由 AI 自动命题补足
+  // topic 为可选话题筛选（三级路径，如 '社会/民生保障'，含下级话题）
   randomQuestion: (
     type?: QuestionType,
     examType?: ExamType,
     province?: string,
     difficultyId?: string,
-    userId?: string
+    userId?: string,
+    topic?: string
   ) => Promise<Question | null>
   getQuestionTypes: () => Promise<QuestionType[]>
 
@@ -59,7 +61,8 @@ export interface Api {
     subType: SubType,
     province?: string,
     difficultyId?: string,
-    userId?: string
+    userId?: string,
+    topic?: string
   ) => Promise<Paper>
   getPaper: (id: string) => Promise<Paper | undefined>
 

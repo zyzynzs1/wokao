@@ -14,6 +14,7 @@ import type {
 } from '../shared/types'
 import { AI_GENERATED_SOURCE } from '../shared/types'
 import { calcDifficulty, difficultyLabel, type QuestionCore } from '../shared/difficulty'
+import { isValidTopicPath, leafTopicPaths } from '../shared/topics'
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -489,6 +490,7 @@ export interface QuestionSpec {
   type: QuestionType
   difficultyId?: string
   targetDifficulty: number // 目标难度（0-10）
+  topic?: string // 指定话题（三级路径）；留空由模型自选
 }
 
 // 各难度档位对应的命题尺度说明，用于让模型产出与目标难度相符的题目
@@ -576,7 +578,7 @@ export async function generateQuestion(
   avoidTitles: string[] = []
 ): Promise<Question | null> {
   if (!deepseek.apiKey.trim()) return null
-  const { examType, subType, province, type, targetDifficulty } = spec
+  const { examType, subType, province, type, targetDifficulty, topic } = spec
   const isEssay = type === '文章论述'
   const difficultyHint =
     DIFFICULTY_HINT.find((h) => targetDifficulty >= h.min && targetDifficulty <= h.max)?.hint ?? ''
@@ -599,6 +601,15 @@ export async function generateQuestion(
 - 知识点（题型）：${TYPE_KNOWLEDGE[type]}
 - 目标难度：${targetDifficulty}/10（${difficultyLabel(targetDifficulty)}）。${difficultyHint}
 - 给分点要求：${pointsInfo}
+
+【话题要求】
+${
+  topic
+    ? `本题目的话题已指定为「${topic}」，给定资料与作答任务必须围绕该话题展开，不得跑题。`
+    : '请从下面的话题清单中选择最贴切的一个话题（须为清单中的完整路径，一字不差）。'
+}
+可选话题清单（一级/二级/三级，须原样引用其中一条完整路径）：
+${leafTopicPaths().join('\n')}
 
 【材料要求】
 - 围绕一个真实、具体的社会 / 治理 / 发展话题，编写给定资料（合计 300-1000 字，随难度调整）。
@@ -625,6 +636,7 @@ ${
   "title": "题干（含作答任务）",
   "material": "给定资料",
   "requirement": "作答要求（含分值与字数）",
+  "topics": ["话题完整路径"],
   "score": 数字（本题满分）,
   "wordLimit": 数字（字数上限）,
   "suggestMinutes": 数字（建议作答分钟数）,
@@ -636,6 +648,7 @@ ${
   "title": "题干（含作答任务）",
   "material": "给定资料",
   "requirement": "作答要求（含分值与字数）",
+  "topics": ["话题完整路径"],
   "score": 数字（本题满分，须等于各给分点分值之和）,
   "wordLimit": 数字（字数上限）,
   "suggestMinutes": 数字（建议作答分钟数）,
@@ -679,12 +692,18 @@ ${
         ? 60
         : 20
 
+  // 话题标签：仅采纳清单内的合法路径；模型未给出或路径不合法时退回调用方指定的话题
+  const rawTopics = Array.isArray(parsed.topics) ? parsed.topics.map((t) => String(t).trim()) : []
+  const validTopics = rawTopics.filter((t) => isValidTopicPath(t))
+  const topics = validTopics.length > 0 ? validTopics : topic && isValidTopicPath(topic) ? [topic] : []
+
   const core: QuestionCore = {
     id: genQuestionId(),
     type,
     examType,
     subType,
     province: examType === '省考' ? province : undefined,
+    topics: topics.length > 0 ? topics : undefined,
     title,
     material,
     requirement:

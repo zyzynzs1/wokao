@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import type {
   AppSettings,
@@ -13,6 +13,7 @@ import type {
 } from '../../../shared/types'
 import { DIFFICULTY_BANDS, PROVINCES } from '../../../shared/types'
 import { difficultyLabel } from '../../../shared/difficulty'
+import { TOPIC_TREE } from '../../../shared/topics'
 import {
   buildImportedPaper,
   deriveTitle,
@@ -71,9 +72,91 @@ function DifficultyPicker({
   )
 }
 
+// 话题选择器（三级联动）：一级领域 → 二级话题 → 三级切口，任一级留空即按该层级不限
+function TopicPicker({
+  value,
+  onChange
+}: {
+  value: string
+  onChange: (v: string) => void
+}): JSX.Element {
+  const parts = value ? value.split('/') : []
+  const [domain, setDomain] = useState(parts[0] ?? '')
+  const [second, setSecond] = useState(parts[1] ?? '')
+  const [third, setThird] = useState(parts[2] ?? '')
+
+  const domainNode = TOPIC_TREE.find((d) => d.id === domain)
+  const seconds = domainNode?.children ?? []
+  const secondNode = seconds.find((s) => s.label === second)
+  const thirds = secondNode?.children ?? []
+
+  const pickDomain = (d: string): void => {
+    setDomain(d)
+    setSecond('')
+    setThird('')
+    onChange(d)
+  }
+  const pickSecond = (s: string): void => {
+    setSecond(s)
+    setThird('')
+    onChange(s ? `${domain}/${s}` : domain)
+  }
+  const pickThird = (t: string): void => {
+    setThird(t)
+    onChange(t ? `${domain}/${second}/${t}` : `${domain}/${second}`)
+  }
+
+  return (
+    <div className="control-line">
+      <span className="control-label">话题</span>
+      <div className="topic-picker">
+        <select
+          className="province-select"
+          value={domain}
+          onChange={(e) => pickDomain(e.target.value)}
+        >
+          <option value="">不限</option>
+          {TOPIC_TREE.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.label}
+            </option>
+          ))}
+        </select>
+        <select
+          className="province-select"
+          value={second}
+          disabled={!domain}
+          onChange={(e) => pickSecond(e.target.value)}
+        >
+          <option value="">不限</option>
+          {seconds.map((s) => (
+            <option key={s.id} value={s.label}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+        <select
+          className="province-select"
+          value={third}
+          disabled={!second}
+          onChange={(e) => pickThird(e.target.value)}
+        >
+          <option value="">不限</option>
+          {thirds.map((t) => (
+            <option key={t.id} value={t.label}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  )
+}
+
 export default function PracticePage(): JSX.Element {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const routerLocation = useLocation()
   const [examType, setExamType] = useState<ExamType>('国考')
   const [subType, setSubType] = useState<SubType>('副省级')
   const [randomExamType, setRandomExamType] = useState<ExamType>('国考')
@@ -82,6 +165,10 @@ export default function PracticePage(): JSX.Element {
   // 知识点练习：支持选择国考 / 省考与难度
   const [knowExamType, setKnowExamType] = useState<ExamType>('国考')
   const [knowDifficulty, setKnowDifficulty] = useState('all')
+  // 话题筛选（三级路径），默认为空表示不限；练习时话题非必选
+  const [randomTopic, setRandomTopic] = useState('')
+  const [paperTopic, setPaperTopic] = useState('')
+  const [knowTopic, setKnowTopic] = useState('')
   const [generating, setGenerating] = useState(false)
   // 抽取单题时，题库不足会由 AI 自动命题，耗时较长，用该状态给出反馈
   const [picking, setPicking] = useState(false)
@@ -126,14 +213,29 @@ export default function PracticePage(): JSX.Element {
     }
   }
 
-  const startRandom = async (): Promise<void> => {
+  // 从主页「话题掌握」点「去练习」跳转过来：预选话题并以随机难度直接出题
+  useEffect(() => {
+    const jumpTopic = (routerLocation.state as { topic?: string } | null)?.topic
+    if (!jumpTopic) return
+    // 清空 history 中的 state，避免返回本页时重复自动出题
+    navigate('/practice', { replace: true, state: null })
+    setRandomTopic(jumpTopic)
+    setRandomDifficulty('all')
+    void startRandom({ topic: jumpTopic, difficulty: 'all' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const startRandom = async (opts?: { topic?: string; difficulty?: string }): Promise<void> => {
+    const topic = opts?.topic ?? randomTopic
+    const difficulty = opts?.difficulty ?? randomDifficulty
     setPicking(true)
     const q = await window.api.randomQuestion(
       undefined,
       randomExamType,
       randomExamType === '省考' ? province : undefined,
-      randomDifficulty,
-      user?.id
+      difficulty,
+      user?.id,
+      topic
     )
     setPicking(false)
     if (q) {
@@ -150,7 +252,8 @@ export default function PracticePage(): JSX.Element {
       knowExamType,
       knowExamType === '省考' ? province : undefined,
       knowDifficulty,
-      user?.id
+      user?.id,
+      knowTopic
     )
     setPicking(false)
     if (q) {
@@ -167,7 +270,8 @@ export default function PracticePage(): JSX.Element {
       subType,
       examType === '省考' ? province : undefined,
       paperDifficulty,
-      user?.id
+      user?.id,
+      paperTopic
     )
     setGenerating(false)
     if (paper.questionIds.length === 0) {
@@ -392,8 +496,9 @@ export default function PracticePage(): JSX.Element {
               </div>
             )}
             <DifficultyPicker value={randomDifficulty} onChange={setRandomDifficulty} />
+            <TopicPicker value={randomTopic} onChange={setRandomTopic} />
           </div>
-          <button className="btn btn-primary" onClick={startRandom} disabled={picking}>
+          <button className="btn btn-primary" onClick={() => void startRandom()} disabled={picking}>
             {picking ? '出题中…' : '随机出题'}
           </button>
         </div>
@@ -446,6 +551,7 @@ export default function PracticePage(): JSX.Element {
               ))}
             </div>
             <DifficultyPicker value={paperDifficulty} onChange={setPaperDifficulty} />
+            <TopicPicker value={paperTopic} onChange={setPaperTopic} />
           </div>
           <button className="btn btn-primary" onClick={startPaper} disabled={generating}>
             {generating ? '组卷中…' : '生成试卷'}
@@ -538,6 +644,7 @@ export default function PracticePage(): JSX.Element {
               </div>
             )}
             <DifficultyPicker value={knowDifficulty} onChange={setKnowDifficulty} />
+            <TopicPicker value={knowTopic} onChange={setKnowTopic} />
           </div>
           <div className="type-grid">
             {QUESTION_TYPES.map((t) => (

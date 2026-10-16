@@ -98,6 +98,22 @@
   font-size: 13px;
   background: #fff;
 }
+/* 话题三级联动：领域 / 话题 / 切口，支持“不限” */
+.topic-picker {
+  display: flex;
+  flex: 1;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.topic-picker .province-select {
+  flex: 1 1 140px;
+  min-width: 120px;
+  max-width: none;
+}
+.topic-picker .province-select:disabled {
+  background: #f5f6f8;
+  color: var(--text-secondary);
+}
 .practice-card {
   display: flex;
   flex-direction: column;
