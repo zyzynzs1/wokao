@@ -112,7 +112,7 @@ export default function AnswerPage(): JSX.Element {
   const questionId = question?.id ?? ''
   const currentMarks = marks[questionId] ?? []
 
-  const addMark = (field: HighlightMark['field'], start: number, end: number): void => {
+  const addMark = (field: HighlightMark['field'], start: number, end: number, color: string): void => {
     if (!questionId) return
     setMarks((prev) => {
       const list = prev[questionId] ?? []
@@ -121,14 +121,24 @@ export default function AnswerPage(): JSX.Element {
       if (idx >= 0) {
         // 同一段落同一区间：同色再点一次取消，换色则改色
         next =
-          list[idx].color === markColor
+          list[idx].color === color
             ? list.filter((_, i) => i !== idx)
-            : list.map((m, i) => (i === idx ? { ...m, color: markColor } : m))
+            : list.map((m, i) => (i === idx ? { ...m, color } : m))
       } else {
-        next = [...list, { field, start, end, color: markColor }]
+        next = [...list, { field, start, end, color }]
       }
       return { ...prev, [questionId]: next }
     })
+  }
+
+  const removeMark = (field: HighlightMark['field'], start: number, end: number): void => {
+    if (!questionId) return
+    setMarks((prev) => ({
+      ...prev,
+      [questionId]: (prev[questionId] ?? []).filter(
+        (m) => !(m.field === field && m.start === start && m.end === end)
+      )
+    }))
   }
 
   const undoMark = (): void => {
@@ -218,6 +228,7 @@ export default function AnswerPage(): JSX.Element {
     if (!user) return
     submittedRef.current = true
     if (isPaper) {
+      const attemptId = `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       const payloads = questions
         .filter((q) => (answers[q.id] ?? '').trim())
         .map((q) => ({
@@ -226,6 +237,7 @@ export default function AnswerPage(): JSX.Element {
           answer: answers[q.id],
           practiceType: state?.mode ?? '整卷练习',
           paperId: state?.paperId,
+          attemptId,
           durationSeconds: elapsed,
           province: state?.province,
           highlights: marks[q.id]
@@ -346,7 +358,9 @@ export default function AnswerPage(): JSX.Element {
               <input type="color" value={markColor} onChange={(e) => pickColor(e.target.value)} />
               🎨
             </label>
-            <span className="mark-bar-tip">按住左键拖动选择题干文字即可标记，Q / E 切换颜色</span>
+            <span className="mark-bar-tip">
+              左键拖选文字后单击右键即可标注；鼠标移入标注区显示实心，移出恢复半透明。Q / E 切换默认颜色
+            </span>
             <div className="mark-bar-actions">
               <button
                 className="btn btn-outline btn-sm"
@@ -373,7 +387,8 @@ export default function AnswerPage(): JSX.Element {
             marks={currentMarks}
             editable={canMark}
             color={markColor}
-            onMark={(s, e) => addMark('title', s, e)}
+            onMark={(s, e, c) => addMark('title', s, e, c)}
+            onUnmark={(s, e) => removeMark('title', s, e)}
           />
         </h2>
         <div className="answer-requirement">
@@ -383,7 +398,8 @@ export default function AnswerPage(): JSX.Element {
             marks={currentMarks}
             editable={canMark}
             color={markColor}
-            onMark={(s, e) => addMark('requirement', s, e)}
+            onMark={(s, e, c) => addMark('requirement', s, e, c)}
+            onUnmark={(s, e) => removeMark('requirement', s, e)}
           />
         </div>
 
@@ -397,7 +413,8 @@ export default function AnswerPage(): JSX.Element {
                 marks={currentMarks}
                 editable={canMark}
                 color={markColor}
-                onMark={(s, e) => addMark('material', s, e)}
+                onMark={(s, e, c) => addMark('material', s, e, c)}
+                onUnmark={(s, e) => removeMark('material', s, e)}
               />
             </div>
           </div>

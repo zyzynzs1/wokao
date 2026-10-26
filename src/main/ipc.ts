@@ -350,6 +350,7 @@ export function registerIpc(): void {
         answer: string
         practiceType: PracticeType
         paperId?: string
+        attemptId?: string
         durationSeconds: number
         province?: string
         highlights?: HighlightMark[]
@@ -395,6 +396,7 @@ export function registerIpc(): void {
         questionId: payload.questionId,
         practiceType: payload.practiceType,
         paperId: payload.paperId,
+        attemptId: payload.attemptId,
         answer: payload.answer,
         scoreResult,
         feedback,

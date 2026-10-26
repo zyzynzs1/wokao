@@ -157,6 +157,7 @@ export interface PracticeRecord {
   questionId: string
   practiceType: PracticeType
   paperId?: string
+  attemptId?: string // 同一次整卷作答共用一个 id，用于按套卷归集历史
   answer: string
   scoreResult: ScoreResult
   feedback: string // AI 综合点评
