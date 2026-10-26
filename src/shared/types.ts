@@ -333,12 +333,16 @@ export interface AppSettings {
   localStudyDir: string // 本地学习资料目录
   syncDir?: string // 跨设备进度同步目录（云盘共享文件夹），留空表示不启用
   provider?: string // 当前选中的服务商预设 id（用于设置页回显）
+  answerLayout?: AnswerLayout // 作答页布局：上下（默认）/ 左右
   deepseek: {
     baseUrl: string
     model: string
     apiKey: string
   }
 }
+
+// 作答布局：vertical=资料在上、作答在下；horizontal=资料在左、作答在右并对齐
+export type AnswerLayout = 'vertical' | 'horizontal'
 
 // ---- 局域网同步 ----
 // 桌面端为服务端（server），手机端为客户端（client）

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import type { HighlightMark, PracticeSession, Question } from '../../../shared/types'
+import type { AnswerLayout, HighlightMark, PracticeSession, Question } from '../../../shared/types'
 import { difficultyLabel } from '../../../shared/difficulty'
 import LinedPaper from '../components/LinedPaper'
 import MarkableText, { MARK_COLORS } from '../components/MarkableText'
@@ -54,6 +54,8 @@ export default function AnswerPage(): JSX.Element {
     state?.resume?.highlights ?? {}
   )
   const [markColor, setMarkColor] = useState<string>(() => loadMarkColor())
+  // 作答页布局（来自设置，默认上下布局）
+  const [answerLayout, setAnswerLayout] = useState<AnswerLayout>('vertical')
 
   const sessionIdRef = useRef<string>(state?.resume?.id ?? newId())
   const submittedRef = useRef(false)
@@ -73,6 +75,11 @@ export default function AnswerPage(): JSX.Element {
       setQuestions(qs.filter(Boolean) as Question[])
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 载入作答布局设置
+  useEffect(() => {
+    void window.api.getSettings().then((s) => setAnswerLayout(s.answerLayout ?? 'vertical'))
   }, [])
 
   // 计时：暂停时冻结（倒计时与超时都不增长）
@@ -277,7 +284,9 @@ export default function AnswerPage(): JSX.Element {
   }
 
   return (
-    <div className="answer-page">
+    <div
+      className={`answer-page${answerLayout === 'horizontal' ? ' answer-layout-horizontal' : ''}`}
+    >
       <div className="answer-topbar">
         <button className="btn btn-outline btn-sm" onClick={handleBack}>
           ← 返回
