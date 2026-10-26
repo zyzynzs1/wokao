@@ -1,4 +1,6 @@
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
 import type { HighlightMark } from '../../../shared/types'
 import './markable.css'
 
@@ -24,11 +26,20 @@ interface Props {
   marks: HighlightMark[]
   editable?: boolean
   color?: string
-  onMark?: (start: number, end: number) => void
+  onMark?: (start: number, end: number, color: string) => void
+  onUnmark?: (start: number, end: number) => void
 }
 
 function clamp(n: number, max: number): number {
   return Math.max(0, Math.min(max, n))
+}
+
+// #rrggbb → rgba()，用于标注默认的半透明底色
+function toRgba(hex: string, alpha: number): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return hex
+  const n = parseInt(m[1], 16)
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`
 }
 
 // 把文本按标记切段渲染；区间重叠时，后添加的标记覆盖先前的
@@ -52,10 +63,21 @@ function renderSegments(text: string, marks: HighlightMark[]): JSX.Element[] {
     const seg = text.slice(s, e)
     if (!seg) continue
     const covering = valid.filter((m) => m.start <= s && m.end >= e)
-    const color = covering.length > 0 ? covering[covering.length - 1].color : ''
+    const mark = covering[covering.length - 1]
     out.push(
-      color ? (
-        <mark key={s} style={{ backgroundColor: color }}>
+      mark ? (
+        <mark
+          key={s}
+          className="markable-hl"
+          data-mark-start={mark.start}
+          data-mark-end={mark.end}
+          style={
+            {
+              '--mark-color': mark.color,
+              '--mark-soft': toRgba(mark.color, 0.32)
+            } as CSSProperties
+          }
+        >
           {seg}
         </mark>
       ) : (
@@ -66,16 +88,29 @@ function renderSegments(text: string, marks: HighlightMark[]): JSX.Element[] {
   return out
 }
 
-// 题干文字：支持左键拖选标记（editable），完成后以只读方式回显
+interface MenuState {
+  x: number
+  y: number
+  start: number
+  end: number
+  existing: boolean
+}
+
+// 题干文字：左键拖选后用右键菜单标注；标注以半透明底色悬浮，悬停时实心显示
 export default function MarkableText({
   text,
   field,
   marks,
   editable,
   color,
-  onMark
+  onMark,
+  onUnmark
 }: Props): JSX.Element {
   const ref = useRef<HTMLSpanElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  // 右键时浏览器可能清空选区，这里在左键松开时先记一份
+  const [pending, setPending] = useState<{ start: number; end: number } | null>(null)
+  const [menu, setMenu] = useState<MenuState | null>(null)
 
   // 把选区端点换算成容器纯文本中的字符下标
   const offsetOf = (node: Node, offset: number): number => {
@@ -92,31 +127,124 @@ export default function MarkableText({
     return -1
   }
 
-  const handleMouseUp = (): void => {
-    if (!editable || !onMark || !color) return
+  // 选区必须完整落在本段文字内，跨段落不做处理
+  const readSelection = (): { start: number; end: number } | null => {
     const sel = window.getSelection()
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null
     const range = sel.getRangeAt(0)
     const root = ref.current
-    if (!root) return
-    // 选区必须完整落在本段文字内，跨段落不做处理
-    if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return
+    if (!root) return null
+    if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null
     const start = offsetOf(range.startContainer, range.startOffset)
     const end = offsetOf(range.endContainer, range.endOffset)
-    if (start < 0 || end < 0 || end <= start) return
-    onMark(start, end)
-    sel.removeAllRanges()
+    if (start < 0 || end < 0 || end <= start) return null
+    return { start, end }
+  }
+
+  const handleMouseUp = (ev: React.MouseEvent): void => {
+    if (!editable || !onMark || ev.button !== 0) return
+    setPending(readSelection())
+  }
+
+  const handleContextMenu = (ev: React.MouseEvent): void => {
+    if (!editable || !onMark) return
+    const sel = readSelection() ?? pending
+    if (sel) {
+      ev.preventDefault()
+      setPending(sel)
+      setMenu({ x: ev.clientX, y: ev.clientY, start: sel.start, end: sel.end, existing: false })
+      return
+    }
+    // 右键点在已有标注上：允许改色或清除
+    const el = (ev.target as HTMLElement).closest('mark[data-mark-start]')
+    if (el) {
+      ev.preventDefault()
+      setPending(null)
+      setMenu({
+        x: ev.clientX,
+        y: ev.clientY,
+        start: Number(el.getAttribute('data-mark-start')),
+        end: Number(el.getAttribute('data-mark-end')),
+        existing: true
+      })
+    }
+  }
+
+  useEffect(() => {
+    if (!menu) return
+    const onDown = (e: MouseEvent): void => {
+      if (menuRef.current && menuRef.current.contains(e.target as Node)) return
+      setMenu(null)
+    }
+    const onScroll = (): void => setMenu(null)
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setMenu(null)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('scroll', onScroll, true)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [menu])
+
+  const applyMark = (c: string): void => {
+    if (!menu) return
+    onMark?.(menu.start, menu.end, c)
+    setMenu(null)
+    setPending(null)
+    window.getSelection()?.removeAllRanges()
+  }
+
+  const clearMark = (): void => {
+    if (!menu) return
+    onUnmark?.(menu.start, menu.end)
+    setMenu(null)
+    setPending(null)
   }
 
   const fieldMarks = marks.filter((m) => m.field === field)
+  const menuStyle: CSSProperties | undefined = menu
+    ? {
+        left: Math.min(menu.x, window.innerWidth - 250),
+        top: Math.min(menu.y, window.innerHeight - 150)
+      }
+    : undefined
 
   return (
     <span
       ref={ref}
       className={editable ? 'markable markable-editable' : 'markable'}
       onMouseUp={handleMouseUp}
+      onContextMenu={handleContextMenu}
     >
       {renderSegments(text, fieldMarks)}
+      {menu &&
+        createPortal(
+          <div ref={menuRef} className="mark-menu" style={menuStyle}>
+            <div className="mark-menu-title">{menu.existing ? '已有标注' : '标注选中内容'}</div>
+            <div className="mark-menu-colors">
+              {MARK_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className={`mark-menu-swatch${color?.toLowerCase() === c ? ' active' : ''}`}
+                  style={{ backgroundColor: c }}
+                  title="用该颜色标注"
+                  onClick={() => applyMark(c)}
+                />
+              ))}
+            </div>
+            {menu.existing && onUnmark && (
+              <button type="button" className="mark-menu-clear" onClick={clearMark}>
+                清除标注
+              </button>
+            )}
+          </div>,
+          document.body
+        )}
     </span>
   )
 }
