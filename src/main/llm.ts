@@ -658,8 +658,8 @@ ${
 ${leafTopicPaths().join('\n')}
 
 【材料要求】
-- 围绕一个真实、具体的社会 / 治理 / 发展话题，编写给定资料（合计 300-1000 字，随难度调整）。
-- 资料中要包含可提炼的事实、做法、数据或案例，不要直接给出结论性要点，要点须能由材料概括或分析得出。
+- 围绕一个真实、具体的社会 / 治理 / 发展话题，编写给定资料：小题合计 1500—2500 字，大作文 2200—3000 字，分 4—6 段。
+- 采用真实申论材料的写法：具体地区、人物、场景、数据、群众与专家观点、政策表述，以叙事为主；避免“一是……二是……”式的要点罗列，也不要直接写出结论性要点，要点须由材料概括或分析得出。
 - 材料须自洽、可信，不得出现“略”“……”等占位。
 
 【题干与作答要求】
@@ -710,7 +710,7 @@ ${
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
     ],
-    { temperature: 0.8, json: true, maxTokens: 4000 }
+    { temperature: 0.8, json: true, maxTokens: 8000 }
   )
   const parsed = extractJson(raw) as Record<string, unknown> | null
   if (!parsed) return null
