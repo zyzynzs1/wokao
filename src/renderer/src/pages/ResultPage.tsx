@@ -235,7 +235,9 @@ export default function ResultPage(): JSX.Element {
       )}
 
       <div className="card">
-        <h3 className="result-section-title">{isEssay ? '📄 参考范文' : '📄 参考答案'}</h3>
+        <h3 className="result-section-title">
+          {isEssay ? '📄 参考范文（AI 生成，非官方）' : '📄 参考答案（AI 生成，非官方）'}
+        </h3>
         <div className="result-model-answer">{record.modelAnswer}</div>
       </div>
 
