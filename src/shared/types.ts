@@ -147,7 +147,8 @@ export interface HighlightMark {
   field: 'title' | 'requirement' | 'material' // 标记落在哪一段文字上
   start: number // 起始字符下标
   end: number // 结束字符下标（不含）
-  color: string // 标记颜色
+  note?: string // 笔记内容（记录关键词，防止遗忘）
+  color?: string // 旧版纯色高亮，仅为兼容历史数据保留
 }
 
 // 作答记录
