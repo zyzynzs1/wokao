@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import type { AppSettings, LanSyncInfo } from '../../../shared/types'
+import type { AnswerLayout, AppSettings, LanSyncInfo } from '../../../shared/types'
 import { MODEL_PRESETS, PROVINCES } from '../../../shared/types'
 import './settings.css'
 
@@ -40,6 +40,7 @@ export default function SettingsPage(): JSX.Element {
   const [apiKey, setApiKey] = useState('')
   const [province, setProvince] = useState('辽宁')
   const [localStudyDir, setLocalStudyDir] = useState('')
+  const [answerLayout, setAnswerLayout] = useState<AnswerLayout>('vertical')
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [message, setMessage] = useState('')
@@ -64,6 +65,7 @@ export default function SettingsPage(): JSX.Element {
       setProviderId(matched?.id ?? s.provider ?? 'custom')
       setProvince(s.province ?? '辽宁')
       setLocalStudyDir(s.localStudyDir ?? '')
+      setAnswerLayout(s.answerLayout ?? 'vertical')
     })
     void window.api.getLanSyncInfo().then((info) => {
       setLanSync(info)
@@ -94,12 +96,22 @@ export default function SettingsPage(): JSX.Element {
       province,
       localStudyDir: localStudyDir.trim(),
       provider: providerId,
+      answerLayout,
       deepseek: { baseUrl: baseUrl.trim(), model: model.trim(), apiKey: apiKey.trim() }
     }
     await window.api.updateSettings(next)
     setSettings(next)
     setSaving(false)
     setMessage('已保存')
+  }
+
+  // 布局方式即时生效：选中后立刻写回设置，无需再点保存
+  const pickLayout = async (layout: AnswerLayout): Promise<void> => {
+    setAnswerLayout(layout)
+    if (!settings) return
+    const next: AppSettings = { ...settings, answerLayout: layout }
+    await window.api.updateSettings(next)
+    setSettings(next)
   }
 
   const test = async (): Promise<void> => {
@@ -193,6 +205,35 @@ export default function SettingsPage(): JSX.Element {
               onChange={(e) => setLocalStudyDir(e.target.value)}
               placeholder="例如 D:\BaiduNetdiskDownload\shenlun"
             />
+          </div>
+          <div className="settings-field">
+            <label>作答布局方式（选中即生效）</label>
+            <div className="layout-picker">
+              <button
+                type="button"
+                className={`layout-option${answerLayout === 'vertical' ? ' active' : ''}`}
+                onClick={() => void pickLayout('vertical')}
+              >
+                <span className="layout-preview layout-preview-vertical">
+                  <i />
+                  <i />
+                </span>
+                <span className="layout-option-title">上下布局</span>
+                <span className="layout-option-desc">资料在上，作答在下（默认）</span>
+              </button>
+              <button
+                type="button"
+                className={`layout-option${answerLayout === 'horizontal' ? ' active' : ''}`}
+                onClick={() => void pickLayout('horizontal')}
+              >
+                <span className="layout-preview layout-preview-horizontal">
+                  <i />
+                  <i />
+                </span>
+                <span className="layout-option-title">左右布局</span>
+                <span className="layout-option-desc">资料在左，作答在右并对齐</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

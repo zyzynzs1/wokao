@@ -74,6 +74,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   province: '辽宁',
   localStudyDir: '',
   provider: 'zhipu',
+  answerLayout: 'vertical',
   deepseek: {
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     model: 'glm-4-flash-250414',

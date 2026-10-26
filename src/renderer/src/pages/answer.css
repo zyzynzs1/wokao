@@ -143,6 +143,43 @@
   font-size: 14px;
 }
 
+/* ---- 左右布局：资料在左、作答在右并对齐 ---- */
+.answer-page.answer-layout-horizontal {
+  max-width: 1500px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  align-items: stretch;
+}
+.answer-layout-horizontal .answer-topbar,
+.answer-layout-horizontal .answer-progress,
+.answer-layout-horizontal .answer-actions {
+  grid-column: 1 / -1;
+}
+/* 两栏等高对齐，各自内部滚动，长资料不会把作答区顶到屏幕外 */
+.answer-layout-horizontal .answer-question,
+.answer-layout-horizontal .answer-write {
+  height: calc(100vh - 230px);
+  min-height: 420px;
+  overflow-y: auto;
+}
+.answer-layout-horizontal .answer-material-body {
+  max-height: none;
+  overflow: visible;
+}
+/* 窄屏（手机）回退为上下布局，避免两栏过窄 */
+@media (max-width: 900px) {
+  .answer-page.answer-layout-horizontal {
+    display: flex;
+    flex-direction: column;
+  }
+  .answer-layout-horizontal .answer-question,
+  .answer-layout-horizontal .answer-write {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+}
+
 .answer-actions {
   display: flex;
   align-items: center;
