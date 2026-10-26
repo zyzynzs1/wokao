@@ -495,6 +495,7 @@ export const mobileApi: Api = {
       questionId: payload.questionId,
       practiceType: payload.practiceType as PracticeType,
       paperId: payload.paperId,
+      attemptId: payload.attemptId,
       answer: payload.answer,
       scoreResult,
       feedback,

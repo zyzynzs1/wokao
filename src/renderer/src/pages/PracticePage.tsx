@@ -6,6 +6,7 @@ import type {
   AppSettings,
   ExamType,
   Paper,
+  PracticeRecord,
   PracticeSession,
   Question,
   QuestionType,
@@ -44,6 +45,27 @@ interface ImportDraft {
   examType: ExamType
   subType: SubType
   province: string
+}
+
+// 一套真题卷的一次完整作答
+interface PaperAttempt {
+  key: string
+  createdAt: number
+  records: PracticeRecord[]
+  score: number
+  total: number
+  durationSeconds: number
+}
+
+function fmtTime(ts: number): string {
+  const d = new Date(ts)
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+function fmtDuration(sec: number): string {
+  const m = Math.floor(sec / 60)
+  return m > 0 ? `${m} 分 ${sec % 60} 秒` : `${sec} 秒`
 }
 
 // 难度选择器：不限 / 入门 / 进阶 / 较难
@@ -176,6 +198,9 @@ export default function PracticePage(): JSX.Element {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [sessions, setSessions] = useState<PracticeSession[]>([])
   const [realPapers, setRealPapers] = useState<Paper[]>([])
+  const [records, setRecords] = useState<PracticeRecord[]>([])
+  // 真题历史：当前查看历史记录的套卷
+  const [historyPaper, setHistoryPaper] = useState<Paper | null>(null)
   const [questionMap, setQuestionMap] = useState<Record<string, Question>>({})
   // 真题导入
   const fileRef = useRef<HTMLInputElement>(null)
@@ -202,6 +227,7 @@ export default function PracticePage(): JSX.Element {
   useEffect(() => {
     if (!user) return
     void window.api.getSessions(user.id).then(setSessions)
+    void window.api.getRecords(user.id).then(setRecords)
   }, [user])
 
   const changeProvince = async (p: string): Promise<void> => {
@@ -391,6 +417,29 @@ export default function PracticePage(): JSX.Element {
 
   const isImported = (p: Paper): boolean =>
     p.questionIds.some((id) => questionMap[id]?.source?.startsWith('本地导入'))
+
+  // 把同一套卷的作答记录按「一次作答」归集，时间倒序
+  const attemptsOf = (paperId: string): PaperAttempt[] => {
+    const groups = new Map<string, PracticeRecord[]>()
+    for (const r of records) {
+      if (r.paperId !== paperId) continue
+      // 旧记录没有 attemptId，用 5 分钟时间窗兜底归集
+      const key = r.attemptId ?? `legacy-${Math.floor(r.createdAt / (5 * 60 * 1000))}`
+      const arr = groups.get(key)
+      if (arr) arr.push(r)
+      else groups.set(key, [r])
+    }
+    return [...groups.entries()]
+      .map(([key, rs]) => ({
+        key,
+        createdAt: Math.min(...rs.map((r) => r.createdAt)),
+        records: rs.slice().sort((a, b) => a.createdAt - b.createdAt),
+        score: rs.reduce((s, r) => s + r.scoreResult.score, 0),
+        total: rs.reduce((s, r) => s + r.scoreResult.totalScore, 0),
+        durationSeconds: Math.max(...rs.map((r) => r.durationSeconds))
+      }))
+      .sort((a, b) => b.createdAt - a.createdAt)
+  }
 
   return (
     <div>
@@ -590,22 +639,50 @@ export default function PracticePage(): JSX.Element {
             <p className="practice-desc">暂无真题卷，可点击「导入本地真题」添加。</p>
           ) : (
             <div className="real-paper-list">
-              {realPapers.map((p) => (
-                <button key={p.id} className="real-paper-item" onClick={() => startRealPaper(p)}>
-                  <div className="real-paper-info">
-                    <div className="real-paper-title">
-                      {p.title}
-                      {isImported(p) && <span className="tag tag-orange real-paper-tag">导入</span>}
-                    </div>
-                    <div className="real-paper-meta">
-                      {p.examType} · {p.subType}
-                      {p.province ? ` · ${p.province}` : ''} · {p.questionIds.length} 题 · 满分{' '}
-                      {p.totalScore} 分 · 建议 {p.suggestMinutes} 分钟
+              {realPapers.map((p) => {
+                const historyCount = attemptsOf(p.id).length
+                return (
+                  <div key={p.id} className="real-paper-item">
+                    <button
+                      type="button"
+                      className="real-paper-main"
+                      onClick={() => startRealPaper(p)}
+                    >
+                      <div className="real-paper-info">
+                        <div className="real-paper-title">
+                          {p.title}
+                          {isImported(p) && (
+                            <span className="tag tag-orange real-paper-tag">导入</span>
+                          )}
+                        </div>
+                        <div className="real-paper-meta">
+                          {p.examType} · {p.subType}
+                          {p.province ? ` · ${p.province}` : ''} · {p.questionIds.length} 题 · 满分{' '}
+                          {p.totalScore} 分 · 建议 {p.suggestMinutes} 分钟
+                        </div>
+                      </div>
+                    </button>
+                    <div className="real-paper-actions">
+                      {historyCount > 0 && (
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm"
+                          onClick={() => setHistoryPaper(p)}
+                        >
+                          查看历史 ({historyCount})
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={() => startRealPaper(p)}
+                      >
+                        开始作答
+                      </button>
                     </div>
                   </div>
-                  <span className="real-paper-go">开始作答 →</span>
-                </button>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
@@ -756,6 +833,63 @@ export default function PracticePage(): JSX.Element {
               <button className="btn btn-primary" onClick={() => void confirmImport()} disabled={importing}>
                 {importing ? '导入中…' : `导入 ${draft.exam.questions.length} 道题`}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 真题作答历史 */}
+      {historyPaper && (
+        <div className="history-mask" onClick={() => setHistoryPaper(null)}>
+          <div className="history-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="history-head">
+              <div>
+                <div className="history-title">{historyPaper.title}</div>
+                <div className="history-sub">
+                  共 {attemptsOf(historyPaper.id).length} 次作答记录，点击任一条查看当次成绩与逐题详情。
+                </div>
+              </div>
+              <button
+                className="btn btn-outline btn-sm"
+                onClick={() => setHistoryPaper(null)}
+                aria-label="关闭"
+              >
+                关闭
+              </button>
+            </div>
+            <div className="history-list">
+              {attemptsOf(historyPaper.id).length === 0 ? (
+                <div className="history-empty">这套试卷还没有作答记录</div>
+              ) : (
+                attemptsOf(historyPaper.id).map((a) => (
+                  <button
+                    key={a.key}
+                    type="button"
+                    className="history-row"
+                    onClick={() =>
+                      navigate('/practice/paper-result', {
+                        state: {
+                          paperTitle: historyPaper.title,
+                          paperId: historyPaper.id,
+                          records: a.records
+                        }
+                      })
+                    }
+                  >
+                    <div className="history-row-main">
+                      <div className="history-row-time">{fmtTime(a.createdAt)}</div>
+                      <div className="history-row-meta">
+                        已答 {a.records.length} 题 · 用时 {fmtDuration(a.durationSeconds)}
+                      </div>
+                    </div>
+                    <div className="history-row-score">
+                      {a.score}
+                      <span className="history-row-total"> / {a.total}</span>
+                    </div>
+                    <span className="history-row-arrow">→</span>
+                  </button>
+                ))
+              )}
             </div>
           </div>
         </div>

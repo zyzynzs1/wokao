@@ -24,6 +24,7 @@ export interface SubmitPayload {
   answer: string
   practiceType: string
   paperId?: string
+  attemptId?: string
   durationSeconds: number
   province?: string
   highlights?: HighlightMark[]
