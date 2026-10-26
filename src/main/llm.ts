@@ -87,8 +87,8 @@ export interface FeedbackResult {
   modelAnswer: string
   score?: number
   band?: string
-  // 小题：大模型对每个采分点的实得分
-  points?: { id: string; got: number }[]
+  // 小题：大模型对每个采分点的实得分（采分点由模型自主确定，label/full 可选）
+  points?: { id: string; got: number; label?: string; full?: number }[]
   // 细分维度实得分；大作文由模型自定维度并给出各自满分（full）
   dimensions?: { name: string; got: number; full?: number }[]
   // 主要失分点及原因
@@ -298,8 +298,8 @@ export async function generateFeedback(
 
   const pointsInfo =
     !isEssay && question.scoringPoints.length > 0
-      ? `\n\n【采分点清单（必须逐点给分，不得增删或改名）】\n${question.scoringPoints
-          .map((p) => `${p.id}｜${p.label}｜本点满分 ${p.score} 分`)
+      ? `\n\n【参考采分点（软件预置，非官方标准，仅供参考；你可以按官方阅卷标准自行增删、合并或重新命名）】\n${question.scoringPoints
+          .map((p) => `${p.id}｜${p.label}｜参考分值 ${p.score} 分`)
           .join('\n')}`
       : ''
 
@@ -333,15 +333,16 @@ export async function generateFeedback(
     : `{
   "feedback": "综合点评：先肯定优点，再指出主要不足，结合采分点说明失分原因，100-200字",
   "suggestions": ["改进建议1", "改进建议2", "改进建议3"],
-  "modelAnswer": "给出该题的高分参考答案（贴近参考答案，规范、完整）",
-  "points": [{"id": "采分点编号", "got": 数字（0 到该点满分之间、可为 0.5 倍数的实得分）}]${dimensionsSchema}
+  "modelAnswer": "给出该题的高分参考答案（规范、完整；须由你独立撰写，不得照搬预置参考答案）",
+  "score": 数字（你按官方阅卷标准独立判定的得分，0-${question.score} 之间、可为 0.5 倍数）,
+  "points": [{"id": "采分点编号（由你自主确定）", "label": "采分点名称", "full": 数字（该点满分）, "got": 数字（该点实得分，0 到该点满分之间、可为 0.5 倍数）}]${dimensionsSchema}
 }`
 
   const userPrompt = `【题目类型】${question.type}（${question.examType}·${question.subType}）${provinceNote}
 【题目】${question.title}
 【作答要求】${question.requirement}
 【给定资料摘要】${question.material.slice(0, 3000)}
-【参考答案/范文】${question.referenceAnswer.slice(0, 3000)}
+【预置参考答案/范文（软件生成，非官方答案，仅供思路参考，不得照搬）】${question.referenceAnswer.slice(0, 3000)}
 【题目评分要求（软件整理，仅作参考，最终以官方阅卷标准为准）】${question.scoringRules}${bandInfo}${pointsInfo}${dimensionsInfo}
 
 ${gradingStandard(question, province)}
@@ -368,7 +369,9 @@ ${
     ? ''
     : '逐点给分尺度：要点完整且表述准确给该点满分；要点不全、表述不准或只是“沾边”给部分分；未涉及该要点给 0 分。' +
       '尤其注意：即使要点已命中，只要存在术语/固定表述错误、拔高或添加材料以外的内容、层次归类混乱、错别字，' +
-      '也必须在该要点内扣分，不得给满分。总分将按各采分点实得分合计得出，无需你另外给出总分。\n'
+      '也必须在该要点内扣分，不得给满分。\n' +
+      '总分为你独立判定的 score；points 只用于展示得分明细（编号、名称、分值由你自主确定）。' +
+      '如果你认为本题不适合拆成采分点，points 返回空数组 []，但 score 必须给出。\n'
 }
 请严格按以下 JSON 格式输出（不要输出多余文字）：
 ${outputSchema}`
@@ -407,17 +410,29 @@ ${outputSchema}`
   }
 }
 
-// 解析模型返回的采分点实得分
-function parsePoints(raw: unknown): { id: string; got: number }[] | undefined {
+// 解析模型返回的采分点实得分（采分点由模型自主确定，名称与分值可选）
+function parsePoints(
+  raw: unknown
+): { id: string; got: number; label?: string; full?: number }[] | undefined {
   if (!Array.isArray(raw)) return undefined
-  const out: { id: string; got: number }[] = []
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue
+  const out: { id: string; got: number; label?: string; full?: number }[] = []
+  raw.forEach((item, index) => {
+    if (!item || typeof item !== 'object') return
     const o = item as Record<string, unknown>
-    const id = typeof o.id === 'string' ? o.id : typeof o.pointId === 'string' ? o.pointId : ''
+    const id =
+      typeof o.id === 'string' ? o.id : typeof o.pointId === 'string' ? o.pointId : `p${index + 1}`
+    const label = typeof o.label === 'string' ? o.label : typeof o.name === 'string' ? o.name : ''
     const got = typeof o.got === 'number' ? o.got : typeof o.score === 'number' ? o.score : NaN
-    if (id && Number.isFinite(got)) out.push({ id, got })
-  }
+    const full =
+      typeof o.full === 'number' ? o.full : typeof o.max === 'number' ? o.max : undefined
+    if (!Number.isFinite(got)) return
+    out.push({
+      id: id || `p${index + 1}`,
+      got,
+      ...(label.trim() ? { label: label.trim() } : {}),
+      ...(typeof full === 'number' && Number.isFinite(full) ? { full } : {})
+    })
+  })
   return out.length > 0 ? out : undefined
 }
 
@@ -479,50 +494,84 @@ function roundHalf(n: number): number {
   return Math.round(n * 2) / 2
 }
 
-// 把模型评分合并进规则评分结果。
-// 小题：以模型逐点给分为准重建采分点明细，总分取各点实得分之和，
-//       从而保证「得分点合计 + 扣分点合计 = 满分」且总分与明细一致；
-//       模型未返回可用明细时保留本地规则评分（同样自洽）。
-// 大作文：沿用模型给出的档位与分数。
+// 把一组采分点满分校正为指定卷面总分（缺失分值则均分）
+function allocateFulls(fulls: number[], total: number): number[] {
+  const sum = fulls.reduce((s, n) => s + n, 0)
+  if (sum <= 0) {
+    const part = Math.floor(total / fulls.length)
+    const rest = total - part * fulls.length
+    return fulls.map((_, i) => part + (i < rest ? 1 : 0))
+  }
+  if (sum === total) return fulls
+  const scale = total / sum
+  const out = fulls.map((n) => Math.round(n * scale))
+  let diff = total - out.reduce((s, n) => s + n, 0)
+  for (let i = 0; diff !== 0 && i < out.length * 4; i++) {
+    const idx = i % out.length
+    const step = diff > 0 ? 1 : -1
+    if (out[idx] + step >= 0) {
+      out[idx] += step
+      diff -= step
+    }
+  }
+  return out
+}
+
+// 把模型评分合入评分结果。
+// AI 是唯一评分方：总分、档位、失分点均由模型独立判定；
+// 采分点仅用于展示得分明细（模型可自主增删、重命名或返回空数组）。
 export function applyFeedbackScore(
   question: Question,
   scoreResult: ScoreResult,
   fb: FeedbackResult
 ): void {
-  if (question.type === '文章论述' || question.scoringPoints.length === 0) {
-    if (fb.band) scoreResult.band = fb.band
-    if (typeof fb.score === 'number') {
-      const clamped = Math.max(0, Math.min(question.score, roundHalf(fb.score)))
-      scoreResult.score = clamped
-      scoreResult.ratio = question.score > 0 ? clamped / question.score : 0
-      scoreResult.scoredBy = 'ai'
-    }
-    // 没有实际失分就不要保留「主要失分点」，避免与「无扣分」自相矛盾
-    if (scoreResult.totalScore > 0 && scoreResult.score >= scoreResult.totalScore) {
-      fb.losses = undefined
-    }
-    return
+  const maxScore = question.score
+  const clampScore = (n: number): number => Math.max(0, Math.min(maxScore, roundHalf(n)))
+
+  // 1) 得分明细：模型给出采分点时按其名称与分值展示
+  const points = fb.points ?? []
+  if (points.length > 0) {
+    const fulls = allocateFulls(
+      points.map((p) => (typeof p.full === 'number' && p.full > 0 ? roundHalf(p.full) : 0)),
+      maxScore
+    )
+    const pointResults: PointResult[] = points.map((p, i) => {
+      const full = fulls[i] ?? 0
+      const got = Math.max(0, Math.min(full, roundHalf(p.got)))
+      return {
+        pointId: p.id,
+        label: p.label?.trim() || `采分点 ${i + 1}`,
+        score: full,
+        got,
+        hit: got > 0
+      }
+    })
+    scoreResult.pointResults = pointResults
+    scoreResult.hitSummary = pointResults.filter((p) => p.got > 0).map((p) => p.label)
+    scoreResult.missSummary = pointResults.filter((p) => p.got < p.score).map((p) => p.label)
+  } else {
+    // 模型未拆分采分点：不展示明细，避免与 AI 判定不一致
+    scoreResult.pointResults = []
+    scoreResult.hitSummary = []
+    scoreResult.missSummary = []
   }
 
-  const gotById = new Map<string, number>()
-  for (const p of fb.points ?? []) gotById.set(p.id.trim(), p.got)
-  const matched = question.scoringPoints.filter((p) => gotById.has(p.id.trim()))
-  if (matched.length === 0) return
+  // 2) 总分以模型判定为准；模型漏给总分时退回采分点合计
+  if (typeof fb.score === 'number') {
+    scoreResult.score = clampScore(fb.score)
+    scoreResult.scoredBy = 'ai'
+  } else if (points.length > 0) {
+    scoreResult.score = Math.min(
+      maxScore,
+      scoreResult.pointResults.reduce((s, p) => s + p.got, 0)
+    )
+    scoreResult.scoredBy = 'ai'
+  }
+  scoreResult.ratio = maxScore > 0 ? scoreResult.score / maxScore : 0
+  if (fb.band) scoreResult.band = fb.band
 
-  const pointResults: PointResult[] = question.scoringPoints.map((p) => {
-    const raw = gotById.get(p.id.trim())
-    const got = typeof raw === 'number' ? Math.max(0, Math.min(p.score, roundHalf(raw))) : 0
-    return { pointId: p.id, label: p.label, score: p.score, got, hit: got > 0 }
-  })
-  const total = Math.min(question.score, pointResults.reduce((s, p) => s + p.got, 0))
-  scoreResult.pointResults = pointResults
-  scoreResult.score = total
-  scoreResult.ratio = question.score > 0 ? total / question.score : 0
-  scoreResult.hitSummary = pointResults.filter((p) => p.got > 0).map((p) => p.label)
-  scoreResult.missSummary = pointResults.filter((p) => p.got < p.score).map((p) => p.label)
-  scoreResult.scoredBy = 'ai'
-  // 采分点全部满分时不应再列「主要失分点」，保证与「无扣分」一致
-  if (scoreResult.totalScore > 0 && total >= scoreResult.totalScore) {
+  // 满分时不再列「主要失分点」，避免自相矛盾
+  if (scoreResult.totalScore > 0 && scoreResult.score >= scoreResult.totalScore) {
     fb.losses = undefined
   }
 }

@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import type { AnswerLayout, HighlightMark, PracticeSession, Question } from '../../../shared/types'
 import { difficultyLabel } from '../../../shared/difficulty'
 import LinedPaper from '../components/LinedPaper'
-import MarkableText, { MARK_COLORS } from '../components/MarkableText'
+import MarkableText from '../components/MarkableText'
 import './answer.css'
 
 interface AnswerState {
@@ -15,16 +15,6 @@ interface AnswerState {
   province?: string
   suggestMinutes?: number
   resume?: PracticeSession
-}
-
-const MARK_COLOR_KEY = 'wokao:markColor'
-
-function loadMarkColor(): string {
-  try {
-    return localStorage.getItem(MARK_COLOR_KEY) || MARK_COLORS[0]
-  } catch {
-    return MARK_COLORS[0]
-  }
 }
 
 function newId(): string {
@@ -53,7 +43,6 @@ export default function AnswerPage(): JSX.Element {
   const [marks, setMarks] = useState<Record<string, HighlightMark[]>>(
     state?.resume?.highlights ?? {}
   )
-  const [markColor, setMarkColor] = useState<string>(() => loadMarkColor())
   // 作答页布局（来自设置，默认上下布局）
   const [answerLayout, setAnswerLayout] = useState<AnswerLayout>('vertical')
 
@@ -112,21 +101,15 @@ export default function AnswerPage(): JSX.Element {
   const questionId = question?.id ?? ''
   const currentMarks = marks[questionId] ?? []
 
-  const addMark = (field: HighlightMark['field'], start: number, end: number, color: string): void => {
+  const addMark = (field: HighlightMark['field'], start: number, end: number, note: string): void => {
     if (!questionId) return
     setMarks((prev) => {
       const list = prev[questionId] ?? []
       const idx = list.findIndex((m) => m.field === field && m.start === start && m.end === end)
-      let next: HighlightMark[]
-      if (idx >= 0) {
-        // 同一段落同一区间：同色再点一次取消，换色则改色
-        next =
-          list[idx].color === color
-            ? list.filter((_, i) => i !== idx)
-            : list.map((m, i) => (i === idx ? { ...m, color } : m))
-      } else {
-        next = [...list, { field, start, end, color }]
-      }
+      const next =
+        idx >= 0
+          ? list.map((m, i) => (i === idx ? { ...m, note } : m))
+          : [...list, { field, start, end, note }]
       return { ...prev, [questionId]: next }
     })
   }
@@ -150,39 +133,6 @@ export default function AnswerPage(): JSX.Element {
     if (!questionId) return
     setMarks((prev) => ({ ...prev, [questionId]: [] }))
   }
-
-  const pickColor = useCallback((color: string): void => {
-    setMarkColor(color)
-    try {
-      localStorage.setItem(MARK_COLOR_KEY, color)
-    } catch {
-      // 忽略无法写入的情况，仅本次会话生效
-    }
-  }, [])
-
-  // Q / E 左右切换标记颜色；焦点在作答横格等输入框内时不响应
-  useEffect(() => {
-    if (!canMark) return
-    const onKey = (ev: KeyboardEvent): void => {
-      if (ev.ctrlKey || ev.metaKey || ev.altKey) return
-      const target = ev.target as HTMLElement | null
-      if (
-        target &&
-        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
-      ) {
-        return
-      }
-      const key = ev.key.toLowerCase()
-      if (key !== 'q' && key !== 'e') return
-      const cur = MARK_COLORS.indexOf(markColor)
-      const base = cur >= 0 ? cur : 0
-      const step = key === 'e' ? 1 : -1
-      pickColor(MARK_COLORS[(base + step + MARK_COLORS.length) % MARK_COLORS.length])
-      ev.preventDefault()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [markColor, canMark, pickColor])
 
   // 构建并保存会话
   const persist = useCallback((): void => {
@@ -344,22 +294,9 @@ export default function AnswerPage(): JSX.Element {
 
         {canMark && (
           <div className="mark-bar">
-            <span>标记颜色</span>
-            {MARK_COLORS.map((c) => (
-              <button
-                key={c}
-                className={`mark-swatch${markColor.toLowerCase() === c ? ' active' : ''}`}
-                style={{ backgroundColor: c }}
-                onClick={() => pickColor(c)}
-                title="选择该颜色"
-              />
-            ))}
-            <label className="mark-custom" title="自定义颜色">
-              <input type="color" value={markColor} onChange={(e) => pickColor(e.target.value)} />
-              🎨
-            </label>
+            <span className="mark-bar-title">文字笔记</span>
             <span className="mark-bar-tip">
-              左键拖选文字后单击右键即可标注；鼠标移入标注区显示实心，移出恢复半透明。Q / E 切换默认颜色
+              左键拖选文字后单击右键 →「添加笔记」；笔记会以半透明便签浮在选区上方，鼠标移入变实心，点击便签可编辑。
             </span>
             <div className="mark-bar-actions">
               <button
@@ -386,9 +323,8 @@ export default function AnswerPage(): JSX.Element {
             field="title"
             marks={currentMarks}
             editable={canMark}
-            color={markColor}
-            onMark={(s, e, c) => addMark('title', s, e, c)}
-            onUnmark={(s, e) => removeMark('title', s, e)}
+            onNote={(s, e, n) => addMark('title', s, e, n)}
+            onRemove={(s, e) => removeMark('title', s, e)}
           />
         </h2>
         <div className="answer-requirement">
@@ -397,9 +333,8 @@ export default function AnswerPage(): JSX.Element {
             field="requirement"
             marks={currentMarks}
             editable={canMark}
-            color={markColor}
-            onMark={(s, e, c) => addMark('requirement', s, e, c)}
-            onUnmark={(s, e) => removeMark('requirement', s, e)}
+            onNote={(s, e, n) => addMark('requirement', s, e, n)}
+            onRemove={(s, e) => removeMark('requirement', s, e)}
           />
         </div>
 
@@ -412,9 +347,8 @@ export default function AnswerPage(): JSX.Element {
                 field="material"
                 marks={currentMarks}
                 editable={canMark}
-                color={markColor}
-                onMark={(s, e, c) => addMark('material', s, e, c)}
-                onUnmark={(s, e) => removeMark('material', s, e)}
+                onNote={(s, e, n) => addMark('material', s, e, n)}
+                onRemove={(s, e) => removeMark('material', s, e)}
               />
             </div>
           </div>
