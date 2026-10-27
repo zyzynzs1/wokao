@@ -29,6 +29,8 @@ try {
 }
 
 let mainWindow: BrowserWindow | null = null
+// 老板键/手动隐藏后，禁止任何“自动修复显示”把窗口重新弹出来
+let manuallyHidden = false
 
 // 窗口/任务栏图标使用项目自己的图标（宿主运行时可能是别的签名 exe）
 const windowIcon = [
@@ -41,9 +43,11 @@ function toggleBossKey(): void {
   const win = mainWindow
   if (!win || win.isDestroyed()) return
   if (win.isVisible()) {
+    manuallyHidden = true
     win.setSkipTaskbar(true)
     win.hide()
   } else {
+    manuallyHidden = false
     win.setSkipTaskbar(false)
     win.show()
     win.focus()
@@ -76,6 +80,18 @@ function createWindow(): void {
     if (mainWindow === win) mainWindow = null
   })
 
+  let hasShownOnce = false
+  win.on('show', () => {
+    startupLog('window show event')
+    if (manuallyHidden) {
+      // 有任何来源试图把老板键隐藏的窗口重新显示时，立即重新隐藏
+      startupLog('window show blocked by manuallyHidden')
+      win.hide()
+      return
+    }
+    hasShownOnce = true
+  })
+
   win.on('ready-to-show', () => {
     startupLog('main window ready-to-show')
     win.show()
@@ -88,13 +104,8 @@ function createWindow(): void {
     startupLog(`render-process-gone: ${details.reason} exitCode=${details.exitCode}`)
   )
 
-  // 兜底：即使渲染进程初始化异常，也把窗口显示出来（空白窗口也比“双击没反应”好排查）
-  setTimeout(() => {
-    if (!win.isDestroyed() && !win.isVisible()) {
-      startupLog('fallback show window after timeout')
-      win.show()
-    }
-  }, 4000)
+  // 注意：不要再加“几秒后自动 show”的兜底逻辑。
+  // 之前启动排查时加过这种兜底，会在用户刚最小化/老板键隐藏后把窗口强行弹回来。
 
   // 最小化/还原时通知渲染进程，用于冻结作答计时
   win.on('minimize', () => win.webContents.send('window:minimized'))
