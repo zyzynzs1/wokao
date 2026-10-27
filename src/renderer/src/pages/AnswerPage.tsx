@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import type { AnswerLayout, HighlightMark, PracticeSession, Question } from '../../../shared/types'
 import { difficultyLabel } from '../../../shared/difficulty'
 import LinedPaper from '../components/LinedPaper'
-import MarkableText from '../components/MarkableText'
+import MarkableText, { MARK_COLORS } from '../components/MarkableText'
 import './answer.css'
 
 interface AnswerState {
@@ -15,6 +15,18 @@ interface AnswerState {
   province?: string
   suggestMinutes?: number
   resume?: PracticeSession
+}
+
+const MARK_COLOR_KEY = 'wokao:markColor'
+
+function loadMarkColor(): string {
+  try {
+    const saved = localStorage.getItem(MARK_COLOR_KEY)
+    if (saved && /^#[0-9a-f]{6}$/i.test(saved)) return saved
+  } catch {
+    // ignore
+  }
+  return MARK_COLORS[0]
 }
 
 function newId(): string {
@@ -43,6 +55,8 @@ export default function AnswerPage(): JSX.Element {
   const [marks, setMarks] = useState<Record<string, HighlightMark[]>>(
     state?.resume?.highlights ?? {}
   )
+  // 当前标记颜色：左键拖选正文后自动用该颜色标注
+  const [markColor, setMarkColor] = useState<string>(() => loadMarkColor())
   // 作答页布局（来自设置，默认上下布局）
   const [answerLayout, setAnswerLayout] = useState<AnswerLayout>('vertical')
 
@@ -113,6 +127,65 @@ export default function AnswerPage(): JSX.Element {
       return { ...prev, [questionId]: next }
     })
   }
+
+  // 左键拖选后自动上色：只新增/改色，不因重复划选而取消
+  const addColorMark = (
+    field: HighlightMark['field'],
+    start: number,
+    end: number,
+    color: string
+  ): void => {
+    if (!questionId) return
+    setMarks((prev) => {
+      const list = prev[questionId] ?? []
+      const idx = list.findIndex((m) => m.field === field && m.start === start && m.end === end)
+      const next =
+        idx >= 0
+          ? list.map((m, i) => (i === idx ? { ...m, color } : m))
+          : [...list, { field, start, end, color }]
+      return { ...prev, [questionId]: next }
+    })
+  }
+
+  // 清除颜色但保留笔记；没有笔记时整条移除
+  const clearColorMark = (field: HighlightMark['field'], start: number, end: number): void => {
+    if (!questionId) return
+    setMarks((prev) => {
+      const list = prev[questionId] ?? []
+      const next = list.flatMap((m) => {
+        if (m.field !== field || m.start !== start || m.end !== end) return [m]
+        const { color: _color, ...rest } = m
+        return (rest.note ?? '').trim() ? [rest] : []
+      })
+      return { ...prev, [questionId]: next }
+    })
+  }
+
+  const pickColor = useCallback((color: string): void => {
+    setMarkColor(color)
+    try {
+      localStorage.setItem(MARK_COLOR_KEY, color)
+    } catch {
+      // localStorage 不可用时仅当前会话生效
+    }
+  }, [])
+
+  // Q/E 左右切换标记颜色（输入框内不拦截）
+  useEffect(() => {
+    if (!canMark) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'q' && e.key !== 'Q' && e.key !== 'e' && e.key !== 'E') return
+      const el = e.target as HTMLElement | null
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
+      e.preventDefault()
+      const idx = MARK_COLORS.findIndex((c) => c.toLowerCase() === markColor.toLowerCase())
+      const step = e.key === 'q' || e.key === 'Q' ? -1 : 1
+      const next = MARK_COLORS[(idx + step + MARK_COLORS.length) % MARK_COLORS.length]
+      pickColor(next)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [markColor, canMark, pickColor])
 
   const removeMark = (field: HighlightMark['field'], start: number, end: number): void => {
     if (!questionId) return
@@ -294,9 +367,31 @@ export default function AnswerPage(): JSX.Element {
 
         {canMark && (
           <div className="mark-bar">
-            <span className="mark-bar-title">文字笔记</span>
+            <span className="mark-bar-title">标记颜色</span>
+            <div className="mark-swatches">
+              {MARK_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className={`mark-swatch${
+                    markColor.toLowerCase() === c.toLowerCase() ? ' active' : ''
+                  }`}
+                  style={{ backgroundColor: c }}
+                  title="选择该颜色"
+                  onClick={() => pickColor(c)}
+                />
+              ))}
+            </div>
+            <label className="mark-custom" title="自定义颜色">
+              <input
+                type="color"
+                value={markColor}
+                onChange={(e) => pickColor(e.target.value)}
+              />
+              <span>🎨</span>
+            </label>
             <span className="mark-bar-tip">
-              左键拖选文字后单击右键 →「添加笔记」；笔记会以半透明便签浮在选区上方，鼠标移入变实心，点击便签可编辑。
+              左键拖选文字即用当前颜色标注；右键可加笔记/改色/清除；Q / E 切换颜色。
             </span>
             <div className="mark-bar-actions">
               <button
@@ -323,6 +418,9 @@ export default function AnswerPage(): JSX.Element {
             field="title"
             marks={currentMarks}
             editable={canMark}
+            color={markColor}
+            onMark={(s, e, c) => addColorMark('title', s, e, c)}
+            onUnmark={(s, e) => clearColorMark('title', s, e)}
             onNote={(s, e, n) => addMark('title', s, e, n)}
             onRemove={(s, e) => removeMark('title', s, e)}
           />
@@ -333,6 +431,9 @@ export default function AnswerPage(): JSX.Element {
             field="requirement"
             marks={currentMarks}
             editable={canMark}
+            color={markColor}
+            onMark={(s, e, c) => addColorMark('requirement', s, e, c)}
+            onUnmark={(s, e) => clearColorMark('requirement', s, e)}
             onNote={(s, e, n) => addMark('requirement', s, e, n)}
             onRemove={(s, e) => removeMark('requirement', s, e)}
           />
@@ -347,6 +448,9 @@ export default function AnswerPage(): JSX.Element {
                 field="material"
                 marks={currentMarks}
                 editable={canMark}
+                color={markColor}
+                onMark={(s, e, c) => addColorMark('material', s, e, c)}
+                onUnmark={(s, e) => clearColorMark('material', s, e)}
                 onNote={(s, e, n) => addMark('material', s, e, n)}
                 onRemove={(s, e) => removeMark('material', s, e)}
               />

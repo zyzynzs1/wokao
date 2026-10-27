@@ -4,11 +4,30 @@ import { createPortal } from 'react-dom'
 import type { HighlightMark } from '../../../shared/types'
 import './markable.css'
 
+// 预设标记颜色（顺序即切换顺序，可用 Q/E 左右切换）
+export const MARK_COLORS = [
+  '#fff3a3', // 黄
+  '#b7f0c2', // 绿
+  '#b3dcff', // 蓝
+  '#ffc9dd', // 粉
+  '#e0c9ff', // 紫
+  '#ffd9a8', // 橙
+  '#a8ecf0', // 青
+  '#d6e9a8', // 黄绿
+  '#ffb3b3', // 红
+  '#c9d6ff', // 蓝紫
+  '#e8c9a8', // 棕
+  '#d5d8dd' // 灰
+]
+
 interface Props {
   text: string
   field: HighlightMark['field']
   marks: HighlightMark[]
   editable?: boolean
+  color?: string // 当前标记颜色（左键拖选后自动使用该颜色）
+  onMark?: (start: number, end: number, color: string) => void
+  onUnmark?: (start: number, end: number) => void
   onNote?: (start: number, end: number, note: string) => void
   onRemove?: (start: number, end: number) => void
 }
@@ -52,12 +71,16 @@ function markKey(m: { start: number; end: number }): string {
   return `${m.start}-${m.end}`
 }
 
-// 题干文字：左键拖选后右键添加笔记；笔记以半透明便签悬浮在选区上方，悬停变实心
+// 题干文字：左键拖选即用当前颜色标注；右键可加笔记/改色/清除。
+// 笔记以半透明便签悬浮在选区上方，悬停变实心。
 export default function MarkableText({
   text,
   field,
   marks,
   editable,
+  color,
+  onMark,
+  onUnmark,
   onNote,
   onRemove
 }: Props): JSX.Element {
@@ -104,12 +127,17 @@ export default function MarkableText({
   }
 
   const handleMouseUp = (ev: React.MouseEvent): void => {
-    if (!editable || !onNote || ev.button !== 0) return
-    setPending(readSelection())
+    if (!editable || ev.button !== 0) return
+    const sel = readSelection()
+    setPending(sel)
+    // 左键拖选后立即用当前颜色标注（不切换/不取消，改色和清除走右键菜单）
+    if (sel && onMark) {
+      onMark(sel.start, sel.end, color || MARK_COLORS[0])
+    }
   }
 
   const handleContextMenu = (ev: React.MouseEvent): void => {
-    if (!editable || !onNote) return
+    if (!editable) return
     const sel = readSelection() ?? pending
     if (sel) {
       ev.preventDefault()
@@ -232,6 +260,25 @@ export default function MarkableText({
     window.getSelection()?.removeAllRanges()
   }
 
+  const menuMark = menu
+    ? fieldMarks.find((m) => m.start === menu.start && m.end === menu.end)
+    : undefined
+
+  const applyColor = (c: string): void => {
+    if (!menu) return
+    onMark?.(menu.start, menu.end, c)
+    setMenu(null)
+    setPending(null)
+    window.getSelection()?.removeAllRanges()
+  }
+
+  const clearColor = (): void => {
+    if (!menu) return
+    onUnmark?.(menu.start, menu.end)
+    setMenu(null)
+    setPending(null)
+  }
+
   const removeNote = (): void => {
     if (!editor) return
     onRemove?.(editor.start, editor.end)
@@ -268,12 +315,14 @@ export default function MarkableText({
       }
       const key = markKey(mark)
       const hasNote = !!mark.note && mark.note.trim() !== ''
+      const hasColor = !!mark.color
       const isFirst = hasNote && !attached.has(key)
       if (isFirst) attached.add(key)
+      const className = hasNote ? `markable-note${hasColor ? ' has-color' : ''}` : 'markable-hl'
       out.push(
         <mark
           key={s}
-          className={hasNote ? 'markable-note' : 'markable-hl'}
+          className={className}
           data-mark-start={mark.start}
           data-mark-end={mark.end}
           ref={
@@ -285,10 +334,10 @@ export default function MarkableText({
               : undefined
           }
           style={
-            mark.color && !hasNote
+            hasColor
               ? ({
                   '--mark-color': mark.color,
-                  '--mark-soft': toRgba(mark.color, 0.32)
+                  '--mark-soft': toRgba(mark.color!, 0.32)
                 } as CSSProperties)
               : undefined
           }
@@ -358,12 +407,38 @@ export default function MarkableText({
         createPortal(
           <div ref={menuRef} className="mark-menu" style={menuStyle}>
             <div className="mark-menu-title">
-              {menu.existing ? '已有笔记' : `选中 ${menu.end - menu.start} 个字`}
+              {menuMark ? '已有标注' : `选中 ${menu.end - menu.start} 个字`}
             </div>
-            <button type="button" className="mark-menu-item" onClick={() => openEditor()}>
-              {menu.existing ? '编辑笔记' : '添加笔记'}
-            </button>
-            {menu.existing && onRemove && (
+            {onMark && (
+              <>
+                <div className="mark-menu-subtitle">标记颜色</div>
+                <div className="mark-menu-colors">
+                  {MARK_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className={`mark-menu-swatch${
+                        (menuMark?.color ?? color ?? '').toLowerCase() === c ? ' active' : ''
+                      }`}
+                      style={{ backgroundColor: c }}
+                      title="用该颜色标注"
+                      onClick={() => applyColor(c)}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+            {onNote && (
+              <button type="button" className="mark-menu-item" onClick={() => openEditor()}>
+                {menuMark?.note ? '编辑笔记' : '添加笔记'}
+              </button>
+            )}
+            {menuMark && onUnmark && menuMark.color && (
+              <button type="button" className="mark-menu-item" onClick={clearColor}>
+                清除颜色
+              </button>
+            )}
+            {menuMark && onRemove && menuMark.note && (
               <button
                 type="button"
                 className="mark-menu-clear"
