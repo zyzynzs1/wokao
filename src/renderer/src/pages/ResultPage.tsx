@@ -41,6 +41,11 @@ function fmtScore(n: number): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(1)
 }
 
+// 参考答案字数
+function countWords(text: string): number {
+  return (text || '').replace(/\s/g, '').length
+}
+
 function coverageClass(status: CoverageStatus): string {
   if (status === 'full' || status === 'equivalent') return 'result-point-status ok'
   if (status === 'partial') return 'result-point-status partial'
@@ -331,6 +336,9 @@ export default function ResultPage(): JSX.Element {
       <div className="card">
         <h3 className="result-section-title">
           {isEssay ? '📄 参考范例（非唯一答案）' : '📄 参考答案（非唯一答案）'}
+          <span style={{ fontSize: 12, fontWeight: 400, color: '#667085', marginLeft: 8 }}>
+            共 {countWords(record.modelAnswer)} 字
+          </span>
         </h3>
         <p className="result-empty" style={{ marginBottom: 8 }}>
           参考范例用于对照思路，不是官方标准答案；评分以逐点核对与档位判定为准。

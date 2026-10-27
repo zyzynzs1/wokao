@@ -28,6 +28,11 @@ function fmtScore(n: number): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(1)
 }
 
+// 参考答案字数：与软件其他位置一致，去掉空白/换行后按字符计数
+function countWords(text: string): number {
+  return (text || '').replace(/\s/g, '').length
+}
+
 export default function HistoryPage(): JSX.Element {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -244,6 +249,14 @@ export default function HistoryPage(): JSX.Element {
                     </li>
                   ))}
                 </ul>
+              </div>
+            )}
+            {r.modelAnswer && (
+              <div className="history-detail-block">
+                <div className="history-detail-label">
+                  📄 参考答案（{countWords(r.modelAnswer)} 字，非唯一答案）
+                </div>
+                <div className="history-reference">{r.modelAnswer}</div>
               </div>
             )}
             {r.feedback && (

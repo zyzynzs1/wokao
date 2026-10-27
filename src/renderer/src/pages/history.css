@@ -225,3 +225,16 @@
 .history-menu-item.danger:hover {
   background: var(--danger-bg);
 }
+
+.history-reference {
+  font-size: 13px;
+  line-height: 1.9;
+  color: #374151;
+  white-space: pre-wrap;
+  background: #fafaf7;
+  border: 1px solid #eef0f2;
+  border-radius: 8px;
+  padding: 12px 14px;
+  max-height: 360px;
+  overflow-y: auto;
+}
