@@ -19,6 +19,7 @@
     "samples:disputed": "node scripts/run-export-disputed-samples.js",
     "audit:exam": "node scripts/run-audit-exam-data.js",
     "fix:exam": "node scripts/run-fix-exam-data.js",
+    "update": "electron-vite build && node scripts/update-app-code.js",
     "dist": "npm run gen:icon && electron-vite build && electron-builder --publish never && node scripts/copy-to-root.js"
   },
   "devDependencies": {
