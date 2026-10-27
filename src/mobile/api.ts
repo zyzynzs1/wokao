@@ -5,8 +5,8 @@ import type {
   LanSyncInfo,
   LanSyncResult,
   LocalStudyFolder,
-  LossItem,
   Paper,
+  PointPool,
   PracticeRecord,
   PracticeSession,
   PracticeType,
@@ -16,13 +16,18 @@ import type {
   Question,
   QuestionType,
   SafeUser,
-  ScoreDimension,
-  SkeletonPart,
   StudyMaterial,
   SubType
 } from '../shared/types'
-import { NO_KEY_FEEDBACK } from '../shared/types'
-import type { Api, ReevaluateResult, SubmitPayload, SubmitResult } from '../shared/api'
+import { AI_GENERATED_SOURCE, GRADING_VERSION, NO_KEY_FEEDBACK } from '../shared/types'
+import type {
+  Api,
+  GradingMigrationInfo,
+  GradingMigrationResult,
+  ReevaluateResult,
+  SubmitPayload,
+  SubmitResult
+} from '../shared/api'
 import { filterByBand, findBand, inBand } from '../shared/difficulty'
 import { filterByTopic } from '../shared/topics'
 import { seedQuestions } from '../main/data/questions'
@@ -30,8 +35,9 @@ import { seedRealPapers, seedRealQuestions } from '../main/data/realPapers'
 import { seedStudy } from '../main/data/study'
 import { BUILTIN_TOPICS } from '../main/data/topicMap'
 import { scoreAnswer } from '../main/scoring'
-import { applyFeedbackScore, buildDimensions, generateFeedback, generateQuestion, testConnection } from '../main/llm'
+import { generateQuestion, testConnection } from '../main/llm'
 import type { QuestionSpec } from '../main/llm'
+import { gradeQuestion } from '../main/grading'
 
 // 移动端数据层：不依赖 Electron IPC，使用 localStorage 持久化，逻辑与桌面端 store/ipc 保持一致
 
@@ -45,7 +51,8 @@ const K = {
   settings: 'wokao:settings',
   lanSync: 'wokao:lanSync',
   importedPapers: 'wokao:importedPapers',
-  generatedQuestions: 'wokao:generatedQuestions'
+  generatedQuestions: 'wokao:generatedQuestions',
+  pointPools: 'wokao:pointPools'
 }
 
 // 局域网同步：手机端只保存「电脑端地址 + 同步码」
@@ -79,6 +86,10 @@ const DEFAULT_SETTINGS: AppSettings = {
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     model: 'glm-4-flash-250414',
     apiKey: ''
+  },
+  grading: {
+    secondPass: 'same-model',
+    aiQuestionPolicy: 'separate'
   }
 }
 
@@ -150,8 +161,19 @@ function loadSettings(): AppSettings {
   return {
     ...DEFAULT_SETTINGS,
     ...s,
-    deepseek: { ...DEFAULT_SETTINGS.deepseek, ...(s?.deepseek ?? {}) }
+    deepseek: { ...DEFAULT_SETTINGS.deepseek, ...(s?.deepseek ?? {}) },
+    grading: { ...DEFAULT_SETTINGS.grading, ...(s?.grading ?? {}) }
   }
+}
+
+// ---- 评分 v2 点池（localStorage 持久化）----
+function loadPointPools(): Record<string, PointPool> {
+  return read<Record<string, PointPool>>(K.pointPools, {})
+}
+function savePointPoolMobile(pool: PointPool): void {
+  const pools = loadPointPools()
+  pools[pool.questionId] = pool
+  write(K.pointPools, pools)
 }
 
 // ---- 记录 ----
@@ -350,12 +372,15 @@ function computePredictions(userId: string): PredictionItem[] {
   const records = loadRecords()
     .filter((r) => r.userId === userId)
     .sort((a, b) => b.createdAt - a.createdAt)
+  const includeAi = loadSettings().grading?.aiQuestionPolicy === 'include'
   const result: PredictionItem[] = []
   for (const examType of examTypes) {
     for (const type of types) {
       const related = records.filter((r) => {
         const q = findQuestion(r.questionId)
-        return q?.type === type && q?.examType === examType
+        if (!q || q.type !== type || q.examType !== examType) return false
+        if (!includeAi && q.source === AI_GENERATED_SOURCE) return false
+        return true
       })
       if (related.length === 0) {
         result.push({ type, examType, avgRatio: null, predictedScore: null, count: 0 })
@@ -459,31 +484,41 @@ export const mobileApi: Api = {
     const question = findQuestion(payload.questionId)
     if (!question) return { ok: false, error: '题目不存在' }
 
-    const scoreResult = scoreAnswer(question, payload.answer)
+    const settings = loadSettings()
+    const llm = settings.deepseek
+    let scoreResult = scoreAnswer(question, payload.answer)
     let feedback = ''
     let suggestions: string[] = []
     let modelAnswer = question.referenceAnswer
-    let dimensions: ScoreDimension[] | undefined
-    let losses: LossItem[] | undefined
-    let skeleton: SkeletonPart[] | undefined
+    let dimensions: PracticeRecord['dimensions']
+    let losses: PracticeRecord['losses']
+    let grading: PracticeRecord['grading']
+    let gradingVersion: string | undefined
 
-    const llm = loadSettings().deepseek
     if (!llm.apiKey.trim()) {
-      // 未配置 API Key：退化为本地规则评分，并引导免费领取 Key
       scoreResult.scoredBy = 'rule'
       feedback = NO_KEY_FEEDBACK
     } else {
       try {
-        const fb = await generateFeedback(llm, question, payload.answer, scoreResult, payload.province)
-        feedback = fb.feedback
-        suggestions = fb.suggestions
-        modelAnswer = fb.modelAnswer || question.referenceAnswer
-        // 用模型结果覆盖评分明细与总分，保证总分与「得分点/扣分点」明细一致
-        applyFeedbackScore(question, scoreResult, fb)
-        dimensions = buildDimensions(question, scoreResult, fb.dimensions)
-        losses = fb.losses
-        skeleton = fb.skeleton
+        const pools = loadPointPools()
+        const graded = await gradeQuestion({
+          question,
+          answer: payload.answer,
+          settings,
+          llm,
+          pool: pools[question.id] ?? null
+        })
+        if (graded.poolIsNew && graded.pool) savePointPoolMobile(graded.pool)
+        scoreResult = graded.scoreResult
+        feedback = graded.feedback
+        suggestions = graded.suggestions
+        modelAnswer = graded.modelAnswer || question.referenceAnswer
+        dimensions = graded.grade.dimensions
+        losses = graded.losses
+        grading = graded.grade
+        gradingVersion = graded.grade.version
       } catch (err) {
+        scoreResult = scoreAnswer(question, payload.answer)
         scoreResult.scoredBy = 'rule'
         feedback = `（AI 评分暂不可用：${(err as Error).message}）以下为本地规则评分，可稍后在设置中检查接口配置。`
       }
@@ -506,7 +541,8 @@ export const mobileApi: Api = {
       highlights: payload.highlights,
       dimensions,
       losses,
-      skeleton
+      grading,
+      gradingVersion
     }
     const records = loadRecords()
     records.push(record)
@@ -522,22 +558,41 @@ export const mobileApi: Api = {
     const question = findQuestion(record.questionId)
     if (!question) return { ok: false, error: '题目不存在' }
 
-    const scoreResult = scoreAnswer(question, record.answer)
-    const llm = loadSettings().deepseek
+    const settings = loadSettings()
+    const llm = settings.deepseek
     // 未配置接口时不做重评，避免每次启动都空跑网络请求
     if (!llm.apiKey.trim()) return { ok: false, error: '未配置 AI 模型' }
     try {
-      const fb = await generateFeedback(llm, question, record.answer, scoreResult)
-      applyFeedbackScore(question, scoreResult, fb)
+      const pools = loadPointPools()
+      const graded = await gradeQuestion({
+        question,
+        answer: record.answer,
+        settings,
+        llm,
+        pool: pools[question.id] ?? null
+      })
+      if (graded.poolIsNew && graded.pool) savePointPoolMobile(graded.pool)
+      const legacy =
+        record.legacy ??
+        ({
+          scoreResult: record.scoreResult,
+          feedback: record.feedback,
+          suggestions: record.suggestions,
+          modelAnswer: record.modelAnswer,
+          gradingVersion: record.gradingVersion ?? 'legacy-v1',
+          gradedAt: record.createdAt
+        } as PracticeRecord['legacy'])
       const next: PracticeRecord = {
         ...record,
-        scoreResult,
-        feedback: fb.feedback,
-        suggestions: fb.suggestions,
-        modelAnswer: fb.modelAnswer || question.referenceAnswer,
-        dimensions: buildDimensions(question, scoreResult, fb.dimensions),
-        losses: fb.losses,
-        skeleton: fb.skeleton
+        scoreResult: graded.scoreResult,
+        feedback: graded.feedback,
+        suggestions: graded.suggestions,
+        modelAnswer: graded.modelAnswer || question.referenceAnswer,
+        dimensions: graded.grade.dimensions,
+        losses: graded.losses,
+        grading: graded.grade,
+        gradingVersion: graded.grade.version,
+        legacy
       }
       records[idx] = next
       saveRecords(records)
@@ -575,12 +630,97 @@ export const mobileApi: Api = {
     const merged: AppSettings = {
       ...DEFAULT_SETTINGS,
       ...next,
-      deepseek: { ...DEFAULT_SETTINGS.deepseek, ...(next?.deepseek ?? {}) }
+      deepseek: { ...DEFAULT_SETTINGS.deepseek, ...(next?.deepseek ?? {}) },
+      grading: { ...DEFAULT_SETTINGS.grading, ...(next?.grading ?? {}) }
     }
     write(K.settings, merged)
     return merged
   },
   testConnection: async () => testConnection(loadSettings().deepseek),
+
+  // ---- 评分 v2：历史记录迁移（手机端）----
+  getGradingMigrationInfo: async (): Promise<GradingMigrationInfo> => {
+    const records = loadRecords()
+    const pending = records.filter((r) => r.gradingVersion !== GRADING_VERSION || !r.grading)
+    return {
+      needed: pending.length > 0,
+      total: records.length,
+      done: records.length - pending.length,
+      failed: 0,
+      running: false,
+      version: GRADING_VERSION
+    }
+  },
+
+  runGradingMigration: async (): Promise<GradingMigrationResult> => {
+    const settings = loadSettings()
+    if (!settings.deepseek.apiKey.trim()) {
+      return { ok: false, total: 0, done: 0, failed: 0, error: '未配置 AI 模型，暂不能重评历史记录' }
+    }
+    const records = loadRecords()
+    const pendingIndexes = records
+      .map((r, i) => (r.gradingVersion !== GRADING_VERSION || !r.grading ? i : -1))
+      .filter((i) => i >= 0)
+    let done = 0
+    let failed = 0
+    const pools = loadPointPools()
+    for (const index of pendingIndexes) {
+      const record = records[index]
+      const question = findQuestion(record.questionId)
+      if (!question) {
+        failed++
+        continue
+      }
+      try {
+        const graded = await gradeQuestion({
+          question,
+          answer: record.answer,
+          settings,
+          llm: settings.deepseek,
+          pool: pools[question.id] ?? null
+        })
+        if (graded.poolIsNew && graded.pool) {
+          pools[graded.pool.questionId] = graded.pool
+          write(K.pointPools, pools)
+        }
+        const legacy =
+          record.legacy ??
+          ({
+            scoreResult: record.scoreResult,
+            feedback: record.feedback,
+            suggestions: record.suggestions,
+            modelAnswer: record.modelAnswer,
+            gradingVersion: record.gradingVersion ?? 'legacy-v1',
+            gradedAt: record.createdAt
+          } as PracticeRecord['legacy'])
+        records[index] = {
+          ...record,
+          scoreResult: graded.scoreResult,
+          feedback: graded.feedback,
+          suggestions: graded.suggestions,
+          modelAnswer: graded.modelAnswer || question.referenceAnswer,
+          dimensions: graded.grade.dimensions,
+          losses: graded.losses,
+          grading: graded.grade,
+          gradingVersion: graded.grade.version,
+          legacy
+        }
+        done++
+      } catch (err) {
+        console.error('[mobile grading migration] 失败', record.id, (err as Error).message)
+        failed++
+      }
+    }
+    saveRecords(records)
+    if (failed === 0) {
+      const merged: AppSettings = {
+        ...settings,
+        grading: { ...settings.grading, migrationVersion: GRADING_VERSION }
+      }
+      write(K.settings, merged)
+    }
+    return { ok: failed === 0, total: done + failed, done, failed }
+  },
 
   // ---- 局域网同步（手机端为客户端，桌面端为服务端）----
   getLanSyncInfo: async (): Promise<LanSyncInfo> => {

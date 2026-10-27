@@ -40,6 +40,10 @@ const api: Api = {
   updateSettings: (next) => ipcRenderer.invoke('settings:update', next),
   testConnection: () => ipcRenderer.invoke('settings:test'),
 
+  // 评分 v2 历史迁移
+  getGradingMigrationInfo: () => ipcRenderer.invoke('grading:migrationInfo'),
+  runGradingMigration: () => ipcRenderer.invoke('grading:runMigration'),
+
   // 局域网同步（桌面端为服务端）
   getLanSyncInfo: () => ipcRenderer.invoke('lanSync:info'),
   setLanSyncServer: (enabled) => ipcRenderer.invoke(enabled ? 'lanSync:start' : 'lanSync:stop'),

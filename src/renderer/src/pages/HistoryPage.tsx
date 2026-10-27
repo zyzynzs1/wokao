@@ -183,12 +183,27 @@ export default function HistoryPage(): JSX.Element {
               <span className="history-score-total">/{r.scoreResult.totalScore}</span>
             </div>
             <div className="history-ratio">{(r.scoreResult.ratio * 100).toFixed(0)}%</div>
+            {r.grading && (
+              <div className="history-ratio" style={{ fontSize: 11, color: '#667085' }}>
+                {r.grading.tier} · {r.grading.range[0]}–{r.grading.range[1]}
+              </div>
+            )}
           </div>
           <span className="history-caret">{isOpen ? '▴' : '▾'}</span>
         </div>
 
         {isOpen && (
           <div className="history-detail">
+            {r.grading && (
+              <div className="history-detail-block">
+                <div className="history-detail-label">🧭 评分（v2）</div>
+                <div className="history-feedback">
+                  {r.grading.tier} · 中心分 {r.grading.center}/{r.scoreResult.totalScore} 分 · 区间{' '}
+                  {r.grading.range[0]}–{r.grading.range[1]} 分 · 置信度 {r.grading.confidence}
+                  {r.grading.aiQuestion ? ' · AI 自命题（训练参考）' : ''}
+                </div>
+              </div>
+            )}
             {hit.length > 0 && (
               <div className="history-detail-block">
                 <div className="history-detail-label">✅ 得分点</div>

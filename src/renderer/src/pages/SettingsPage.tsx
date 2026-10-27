@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import type { AnswerLayout, AppSettings, LanSyncInfo, ProgressSyncInfo } from '../../../shared/types'
-import { MODEL_PRESETS, PROVINCES } from '../../../shared/types'
+import type {
+  AnswerLayout,
+  AppSettings,
+  GradingSettings,
+  LanSyncInfo,
+  ProgressSyncInfo
+} from '../../../shared/types'
+import { GRADING_VERSION, MODEL_PRESETS, PROVINCES } from '../../../shared/types'
 import './settings.css'
 
 function formatTime(ts: number): string {
@@ -58,6 +64,14 @@ export default function SettingsPage(): JSX.Element {
   const [progressMsg, setProgressMsg] = useState('')
   const [progressBusy, setProgressBusy] = useState(false)
 
+  // 评分 v2 设置
+  const [grading, setGrading] = useState<GradingSettings>({
+    secondPass: 'same-model',
+    aiQuestionPolicy: 'separate'
+  })
+  const [gradingMsg, setGradingMsg] = useState('')
+  const [gradingBusy, setGradingBusy] = useState(false)
+
   useEffect(() => {
     void window.api.getSettings().then((s) => {
       setSettings(s)
@@ -72,6 +86,12 @@ export default function SettingsPage(): JSX.Element {
       setProvince(s.province ?? '辽宁')
       setLocalStudyDir(s.localStudyDir ?? '')
       setAnswerLayout(s.answerLayout ?? 'vertical')
+      setGrading(
+        s.grading ?? {
+          secondPass: 'same-model',
+          aiQuestionPolicy: 'separate'
+        }
+      )
     })
     void window.api.getLanSyncInfo().then((info) => {
       setLanSync(info)
@@ -109,12 +129,43 @@ export default function SettingsPage(): JSX.Element {
       syncDir: settings.syncDir ?? '',
       provider: providerId,
       answerLayout,
-      deepseek: { baseUrl: baseUrl.trim(), model: model.trim(), apiKey: apiKey.trim() }
+      deepseek: { baseUrl: baseUrl.trim(), model: model.trim(), apiKey: apiKey.trim() },
+      grading
     }
     await window.api.updateSettings(next)
     setSettings(next)
     setSaving(false)
     setMessage('已保存')
+  }
+
+  const saveGrading = async (): Promise<void> => {
+    if (!settings) return
+    setGradingBusy(true)
+    setGradingMsg('')
+    const next: AppSettings = { ...settings, grading }
+    await window.api.updateSettings(next)
+    setSettings(next)
+    setGradingBusy(false)
+    setGradingMsg('评分设置已保存')
+  }
+
+  const runMigration = async (): Promise<void> => {
+    setGradingBusy(true)
+    setGradingMsg('正在按新标准重评历史记录（可能需要几分钟）…')
+    try {
+      const res = await window.api.runGradingMigration()
+      setGradingMsg(
+        res.ok
+          ? `重评完成：${res.done} 条`
+          : res.error
+            ? `重评失败：${res.error}`
+            : `重评完成 ${res.done} 条，${res.failed} 条失败`
+      )
+    } catch (err) {
+      setGradingMsg(`重评失败：${(err as Error).message}`)
+    } finally {
+      setGradingBusy(false)
+    }
   }
 
   // 布局方式即时生效：选中后立刻写回设置，无需再点保存
@@ -531,6 +582,133 @@ export default function SettingsPage(): JSX.Element {
           </button>
         </div>
         {progressMsg && <div className="settings-message">{progressMsg}</div>}
+      </div>
+
+      <div className="card">
+        <h3 className="settings-section">评分标准（v2）</h3>
+        <p className="settings-hint">
+          新评分采用“材料建点 → 参考答案校准 → AI 逐点判定 → 代码算分”，输出档位、中心分、区间和置信度。
+          当前版本：{GRADING_VERSION}。所有分数为训练参考分，不是官方阅卷分。
+        </p>
+        <div className="settings-form">
+          <div className="settings-field">
+            <label>独立复核</label>
+            <select
+              className="input"
+              value={grading.secondPass}
+              onChange={(e) =>
+                setGrading({ ...grading, secondPass: e.target.value as GradingSettings['secondPass'] })
+              }
+            >
+              <option value="same-model">同模型三次独立判定 + 多数票（推荐，默认）</option>
+              <option value="off">关闭复核（单次判定，更快、更便宜）</option>
+              <option value="second-provider">第三次改用第二服务商模型（更稳，需要额外 Key）</option>
+            </select>
+          </div>
+          {grading.secondPass === 'second-provider' && (
+            <>
+              <div className="settings-field">
+                <label>复核服务商 ID（自定义）</label>
+                <input
+                  className="input"
+                  value={grading.reviewProvider?.provider ?? ''}
+                  onChange={(e) =>
+                    setGrading({
+                      ...grading,
+                      reviewProvider: {
+                        provider: e.target.value,
+                        baseUrl: grading.reviewProvider?.baseUrl ?? '',
+                        model: grading.reviewProvider?.model ?? '',
+                        apiKey: grading.reviewProvider?.apiKey ?? ''
+                      }
+                    })
+                  }
+                />
+              </div>
+              <div className="settings-field">
+                <label>复核接口地址</label>
+                <input
+                  className="input"
+                  value={grading.reviewProvider?.baseUrl ?? ''}
+                  onChange={(e) =>
+                    setGrading({
+                      ...grading,
+                      reviewProvider: {
+                        provider: grading.reviewProvider?.provider ?? 'review',
+                        baseUrl: e.target.value,
+                        model: grading.reviewProvider?.model ?? '',
+                        apiKey: grading.reviewProvider?.apiKey ?? ''
+                      }
+                    })
+                  }
+                />
+              </div>
+              <div className="settings-field">
+                <label>复核模型名</label>
+                <input
+                  className="input"
+                  value={grading.reviewProvider?.model ?? ''}
+                  onChange={(e) =>
+                    setGrading({
+                      ...grading,
+                      reviewProvider: {
+                        provider: grading.reviewProvider?.provider ?? 'review',
+                        baseUrl: grading.reviewProvider?.baseUrl ?? '',
+                        model: e.target.value,
+                        apiKey: grading.reviewProvider?.apiKey ?? ''
+                      }
+                    })
+                  }
+                />
+              </div>
+              <div className="settings-field">
+                <label>复核 API Key</label>
+                <input
+                  className="input"
+                  type="password"
+                  value={grading.reviewProvider?.apiKey ?? ''}
+                  onChange={(e) =>
+                    setGrading({
+                      ...grading,
+                      reviewProvider: {
+                        provider: grading.reviewProvider?.provider ?? 'review',
+                        baseUrl: grading.reviewProvider?.baseUrl ?? '',
+                        model: grading.reviewProvider?.model ?? '',
+                        apiKey: e.target.value
+                      }
+                    })
+                  }
+                />
+              </div>
+            </>
+          )}
+          <div className="settings-field">
+            <label>AI 自命题统计口径</label>
+            <select
+              className="input"
+              value={grading.aiQuestionPolicy}
+              onChange={(e) =>
+                setGrading({
+                  ...grading,
+                  aiQuestionPolicy: e.target.value as GradingSettings['aiQuestionPolicy']
+                })
+              }
+            >
+              <option value="separate">单独标记，不计入掌握度（推荐）</option>
+              <option value="exclude-stats">完全排除出统计</option>
+              <option value="include">与真题一起统计</option>
+            </select>
+          </div>
+        </div>
+        {gradingMsg && <div className="settings-message">{gradingMsg}</div>}
+        <div className="settings-actions">
+          <button className="btn btn-outline" onClick={runMigration} disabled={gradingBusy}>
+            {gradingBusy ? '处理中…' : '重新评分全部历史记录'}
+          </button>
+          <button className="btn btn-primary" onClick={saveGrading} disabled={gradingBusy}>
+            保存评分设置
+          </button>
+        </div>
       </div>
 
       <div className="card">

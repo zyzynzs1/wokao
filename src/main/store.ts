@@ -6,6 +6,7 @@ import type {
   AppSettings,
   ImportedPaper,
   Paper,
+  PointPool,
   PracticeRecord,
   PracticeSession,
   Question,
@@ -55,6 +56,10 @@ const DEFAULT_SETTINGS: AppSettings = {
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     model: 'glm-4-flash-250414',
     apiKey: ''
+  },
+  grading: {
+    secondPass: 'same-model',
+    aiQuestionPolicy: 'separate'
   }
 }
 
@@ -68,6 +73,8 @@ let sessions: PracticeSession[] = []
 let importedPapers: ImportedPaper[] = []
 // AI 自动命题生成的题目（题库不足以支撑练习时由大模型即时生成），持久化保存
 let generatedQuestions: Question[] = []
+// 评分 v2 点池（按题目 id 冻结缓存，避免每次评分重新建点）
+let pointPools: Record<string, PointPool> = {}
 
 // ---- 局域网同步状态（桌面端作为服务端）----
 export interface LanSyncState {
@@ -94,6 +101,7 @@ export function initStore(): void {
   sessions = readJson<PracticeSession[]>('sessions.json', [])
   importedPapers = readJson<ImportedPaper[]>('importedPapers.json', [])
   generatedQuestions = readJson<Question[]>('generatedQuestions.json', [])
+  pointPools = readJson<Record<string, PointPool>>('pointPools.json', {})
   lanSync = { ...DEFAULT_LAN_SYNC, ...readJson<Partial<LanSyncState>>('lanSync.json', {}) }
   if (!lanSync.token) lanSync.token = randomToken()
   writeJson('lanSync.json', lanSync)
@@ -101,7 +109,8 @@ export function initStore(): void {
   settings = {
     ...DEFAULT_SETTINGS,
     ...settings,
-    deepseek: { ...DEFAULT_SETTINGS.deepseek, ...(settings?.deepseek ?? {}) }
+    deepseek: { ...DEFAULT_SETTINGS.deepseek, ...(settings?.deepseek ?? {}) },
+    grading: { ...DEFAULT_SETTINGS.grading, ...(settings?.grading ?? {}) } as AppSettings['grading']
   }
   writeJson('settings.json', settings)
 }
@@ -120,6 +129,21 @@ function persistSettings(): void {
 }
 function persistSessions(): void {
   writeJson('sessions.json', sessions)
+}
+
+// ---- 评分 v2 点池 ----
+export function getPointPool(questionId: string): PointPool | undefined {
+  return pointPools[questionId]
+}
+export function savePointPool(pool: PointPool): void {
+  pointPools[pool.questionId] = pool
+  writeJson('pointPools.json', pointPools)
+}
+export function deletePointPool(questionId: string): void {
+  if (pointPools[questionId]) {
+    delete pointPools[questionId]
+    writeJson('pointPools.json', pointPools)
+  }
 }
 
 // ---- 题库 / 学习资料（只读种子数据 + 本地导入的题目）----
@@ -340,7 +364,8 @@ export function updateSettings(next: AppSettings): void {
   settings = {
     ...DEFAULT_SETTINGS,
     ...next,
-    deepseek: { ...DEFAULT_SETTINGS.deepseek, ...(next?.deepseek ?? {}) }
+    deepseek: { ...DEFAULT_SETTINGS.deepseek, ...(next?.deepseek ?? {}) },
+    grading: { ...DEFAULT_SETTINGS.grading, ...(next?.grading ?? {}) } as AppSettings['grading']
   }
   persistSettings()
 }

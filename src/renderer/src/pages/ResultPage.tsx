@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import type { ExamType, PracticeRecord, Question, QuestionType } from '../../../shared/types'
+import type {
+  CoverageStatus,
+  ExamType,
+  ExpansionLevel,
+  PracticeRecord,
+  Question,
+  QuestionType
+} from '../../../shared/types'
+import { AI_GENERATED_SOURCE } from '../../../shared/types'
 import { difficultyLabel } from '../../../shared/difficulty'
 import MarkableText from '../components/MarkableText'
 import './result.css'
@@ -9,6 +17,29 @@ import './result.css'
 type ResultNavState = {
   from?: string
   detail?: { type: QuestionType; examType: ExamType }
+}
+
+const COVERAGE_LABEL: Record<CoverageStatus, string> = {
+  full: '完整覆盖',
+  equivalent: '等义表达',
+  partial: '部分覆盖',
+  none: '未覆盖',
+  out_of_material: '材料外'
+}
+
+const EXPANSION_LABEL: Record<ExpansionLevel, string> = {
+  full: '充分展开',
+  basic: '基本展开',
+  brief: '简略提及',
+  title: '仅列标题',
+  none: '—'
+}
+
+function coverageClass(status: CoverageStatus): string {
+  if (status === 'full' || status === 'equivalent') return 'result-point-status ok'
+  if (status === 'partial') return 'result-point-status partial'
+  if (status === 'out_of_material') return 'result-point-status out'
+  return 'result-point-status none'
 }
 
 export default function ResultPage(): JSX.Element {
@@ -21,7 +52,6 @@ export default function ResultPage(): JSX.Element {
   const navState = (location.state as ResultNavState | null) ?? {}
   const backTo = navState.from ?? '/history'
 
-  // 从哪来回哪去；若来源是主页详情弹窗，把 detail 一并带回，返回后弹窗自动恢复
   const handleBack = (): void => {
     if (navState.detail) navigate(backTo, { state: { detail: navState.detail } })
     else navigate(backTo)
@@ -40,13 +70,12 @@ export default function ResultPage(): JSX.Element {
   }
 
   const { scoreResult } = record
+  const grading = record.grading
   const isEssay = question?.type === '文章论述'
-  const hasPoints = scoreResult.pointResults.length > 0
-  const hitPoints = scoreResult.pointResults.filter((p) => p.got > 0)
-  // 扣分点 = 实得分低于该点满分的采分点（含完全遗漏与部分得分）
-  const missPoints = scoreResult.pointResults.filter((p) => p.got < p.score)
-  const sumHit = hitPoints.reduce((s, p) => s + p.got, 0)
-  const sumMiss = missPoints.reduce((s, p) => s + (p.score - p.got), 0)
+  const isAiQuestion = question?.source === AI_GENERATED_SOURCE
+  const module = grading?.mode === 'essay' || isEssay ? '文章论述' : question?.type
+  const pointScoreById = new Map(scoreResult.pointResults.map((p) => [p.pointId, p]))
+  const coverage = grading?.pointCoverage ?? []
 
   return (
     <div className="result-page">
@@ -85,44 +114,85 @@ export default function ResultPage(): JSX.Element {
       <div className="card result-score-card">
         <div className="result-score-main">
           <div className="result-score-num">
-            {scoreResult.score}
+            {grading ? grading.center : scoreResult.score}
             <span className="result-score-total"> / {scoreResult.totalScore} 分</span>
           </div>
-          <div className="result-score-ratio">得分率 {(scoreResult.ratio * 100).toFixed(0)}%</div>
-          {scoreResult.band && <span className="tag tag-orange">{scoreResult.band}</span>}
-          {scoreResult.scoredBy === 'ai' ? (
-            <span className="tag tag-blue">AI 评分</span>
-          ) : (
-            <span className="tag tag-gray">规则评分</span>
-          )}
+          <div className="result-score-ratio">
+            得分率 {((grading ? grading.center : scoreResult.score) / Math.max(1, scoreResult.totalScore) * 100).toFixed(0)}%
+          </div>
         </div>
         <div className="result-score-info">
           <div>
-            <span className="tag tag-blue">{question?.type}</span>{' '}
-            <span className="tag tag-green">
-              {question?.examType} · {question?.subType}
-            </span>
+            {grading ? (
+              <>
+                <span className="tag">{grading.tier}</span>
+                <span className="tag">{grading.confidence}置信度</span>
+              </>
+            ) : (
+              <span className="tag">{scoreResult.band ?? module}</span>
+            )}
+            {isAiQuestion && <span className="tag">AI 自命题</span>}
+            {grading && <span className="tag">训练参考分</span>}
           </div>
-          {question && (
+          {grading && (
             <div className="result-score-meta">
-              难度 {question.difficulty}/10 · {difficultyLabel(question.difficulty)}
+              建议区间 {grading.range[0]}–{grading.range[1]} 分
             </div>
           )}
-          <div className="result-score-meta">实际字数 {scoreResult.wordCount} 字</div>
-          {hasPoints && (
-            <div className="result-score-meta">
-              得分点合计 +{sumHit} 分 · 扣分合计 -{sumMiss} 分（满分 {scoreResult.totalScore} 分）
-            </div>
-          )}
+          <div className="result-score-meta">
+            {question?.examType} · {question?.subType}
+            {question && ` · 难度 ${question.difficulty}/10 ${difficultyLabel(question.difficulty)}`}
+          </div>
+          <div className="result-score-meta">
+            实际字数 {grading && grading.mode === 'essay' ? record.scoreResult.wordCount : scoreResult.wordCount} 字
+          </div>
+          {grading && <div className="result-score-meta">评分标准 {grading.version}</div>}
           {scoreResult.overWordLimit && <div className="result-over">已超出字数限制</div>}
         </div>
       </div>
 
-      {record.dimensions && record.dimensions.length > 0 && (
+      {grading && (
         <div className="card">
-          <h3 className="result-section-title">📊 细分得分</h3>
-          <div className="result-dims">
-            {record.dimensions.map((d) => (
+          <h3 className="result-section-title">🧭 评分说明</h3>
+          <p className="result-feedback">
+            {grading.confidenceReason}
+            {grading.aiQuestion ? '（AI 自命题，评分仅作训练参考。）' : ''}
+          </p>
+          {grading.reviewAgreement !== null && grading.reviewAgreement !== undefined && (
+            <p className="result-score-meta" style={{ color: '#475467', marginTop: 6 }}>
+              两次独立判点一致率：{(grading.reviewAgreement * 100).toFixed(0)}%
+            </p>
+          )}
+          {grading.warnings.length > 0 && (
+            <ul className="result-suggestions" style={{ marginTop: 8 }}>
+              {grading.warnings.map((w, i) => (
+                <li key={i}>⚠️ {w}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {grading?.essay && (
+        <div className="card">
+          <h3 className="result-section-title">📝 大作文档位判定</h3>
+          <p className="result-feedback">
+            <b>{grading.essay.tier}</b>
+            {grading.essay.relationType ? ` · 双主题 ${grading.essay.relationType} 型` : ''}
+            {' · '}
+            {grading.essay.topicType === 'single'
+              ? '单主题'
+              : grading.essay.topicType === 'double'
+                ? '双主题'
+                : '多主题'}
+            {' · '}
+            {grading.essay.essayStyle}
+          </p>
+          <p className="result-feedback" style={{ marginTop: 8 }}>
+            {grading.essay.tierReason}
+          </p>
+          <div className="result-dims" style={{ marginTop: 12 }}>
+            {(grading.dimensions ?? []).map((d) => (
               <div key={d.name} className="result-dim">
                 <span className="result-dim-name">{d.name}</span>
                 <span className="result-dim-bar">
@@ -137,54 +207,70 @@ export default function ResultPage(): JSX.Element {
               </div>
             ))}
           </div>
+          {grading.essay.hardIssues.length > 0 && (
+            <ul className="result-losses" style={{ marginTop: 12 }}>
+              {grading.essay.hardIssues.map((h, i) => (
+                <li key={i} className="result-loss">
+                  <div className="result-loss-title">硬伤（{h.type}）</div>
+                  <div className="result-loss-reason">{h.detail}</div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
-      <div className="result-grid">
+      {coverage.length > 0 && (
         <div className="card">
-          <h3 className="result-section-title">✅ 得分点</h3>
-          {!hasPoints ? (
-            <div className="result-empty">本题不设采分点，按整体水平给分</div>
-          ) : hitPoints.length === 0 ? (
-            <div className="result-empty">未命中采分点</div>
-          ) : (
-            <ul className="result-points">
-              {hitPoints.map((p) => (
-                <li
-                  key={p.pointId}
-                  className="result-point hit"
-                  title={`该点满分 ${p.score} 分`}
-                >
-                  <span className="result-point-label">{p.label}</span>
-                  <span className="result-point-score">+{p.got} 分</span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <h3 className="result-section-title">🔍 逐点核对</h3>
+          <div className="result-points-table">
+            <div className="result-points-head">
+              <span>标准要点 / 材料依据</span>
+              <span>你的表述</span>
+              <span>覆盖</span>
+              <span>得分</span>
+            </div>
+            {coverage.map((c) => {
+              const p = pointScoreById.get(c.pointId)
+              return (
+                <div key={c.pointId} className="result-point-row">
+                  <div className="result-point-label">
+                    <div className="result-point-text">{c.pointText ?? c.pointId}</div>
+                    {c.pointEvidence && <div className="result-point-evidence">{c.pointEvidence}</div>}
+                  </div>
+                  <div className="result-point-quote">
+                    {c.userQuote ? c.userQuote : <span className="result-empty-inline">未提及</span>}
+                    {(c.status === 'partial' || c.status === 'full' || c.status === 'equivalent') &&
+                      c.expansion !== 'none' && (
+                        <span className="result-expansion">（{EXPANSION_LABEL[c.expansion]}）</span>
+                      )}
+                  </div>
+                  <div>
+                    <span className={coverageClass(c.status)}>{COVERAGE_LABEL[c.status]}</span>
+                  </div>
+                  <div className="result-point-score">
+                    {p ? `${p.got}/${p.score}` : '—'}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
+      )}
 
+      {grading && grading.formatDeductions && grading.formatDeductions.length > 0 && (
         <div className="card">
-          <h3 className="result-section-title">❌ 扣分点</h3>
-          {!hasPoints ? (
-            <div className="result-empty">本题不设采分点，按整体水平给分</div>
-          ) : missPoints.length === 0 ? (
-            <div className="result-empty">采分点已全部命中，无扣分</div>
-          ) : (
-            <ul className="result-points">
-              {missPoints.map((p) => (
-                <li
-                  key={p.pointId}
-                  className="result-point miss"
-                  title={`该点满分 ${p.score} 分，实得 ${p.got} 分`}
-                >
-                  <span className="result-point-label">{p.label}</span>
-                  <span className="result-point-score">-{p.score - p.got} 分</span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <h3 className="result-section-title">📎 形式扣分</h3>
+          <ul className="result-losses">
+            {grading.formatDeductions.map((d, i) => (
+              <li key={i} className="result-loss">
+                <div className="result-loss-title">{d.type}：-{d.value} 分</div>
+                <div className="result-loss-reason">{d.reason}</div>
+              </li>
+            ))}
+          </ul>
         </div>
-      </div>
+      )}
 
       <div className="card">
         <h3 className="result-section-title">💬 综合点评</h3>
@@ -236,8 +322,11 @@ export default function ResultPage(): JSX.Element {
 
       <div className="card">
         <h3 className="result-section-title">
-          {isEssay ? '📄 参考范文（AI 生成，非官方）' : '📄 参考答案（AI 生成，非官方）'}
+          {isEssay ? '📄 参考范例（非唯一答案）' : '📄 参考答案（非唯一答案）'}
         </h3>
+        <p className="result-empty" style={{ marginBottom: 8 }}>
+          参考范例用于对照思路，不是官方标准答案；评分以逐点核对与档位判定为准。
+        </p>
         <div className="result-model-answer">{record.modelAnswer}</div>
       </div>
 

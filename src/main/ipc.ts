@@ -6,7 +6,6 @@ import type {
   ExamType,
   HighlightMark,
   ImportedPaper,
-  LossItem,
   Paper,
   PracticeRecord,
   PracticeSession,
@@ -14,15 +13,15 @@ import type {
   PredictionItem,
   Question,
   QuestionType,
-  ScoreDimension,
-  SkeletonPart,
   SubType
 } from '../shared/types'
-import { NO_KEY_FEEDBACK } from '../shared/types'
+import { AI_GENERATED_SOURCE, NO_KEY_FEEDBACK } from '../shared/types'
 import { filterByBand, findBand, inBand } from '../shared/difficulty'
 import { filterByTopic } from '../shared/topics'
-import { applyFeedbackScore, buildDimensions, generateFeedback, generateQuestion, testConnection } from './llm'
+import { generateQuestion, testConnection } from './llm'
 import type { QuestionSpec } from './llm'
+import { gradeQuestion } from './grading'
+import { getGradingMigrationInfo, runGradingMigration } from './gradingMigration'
 import { getLanSyncInfo, regenerateSyncToken, startLanSync, stopLanSync } from './lanSync'
 import {
   getProgressSyncDir,
@@ -48,10 +47,12 @@ import {
   getRealPapers,
   getRecordById,
   getRecordsByUser,
+  getPointPool,
   getSessionsByUser,
   getSettings,
   getStudyMaterialById,
   getStudyMaterials,
+  savePointPool,
   updateRecord,
   updateSettings,
   upsertSession
@@ -222,12 +223,16 @@ function computePredictions(userId: string): PredictionItem[] {
   const types: QuestionType[] = ['归纳概括', '综合分析', '提出对策', '应用文写作', '文章论述']
   const examTypes: ExamType[] = ['国考', '省考']
   const records = getRecordsByUser(userId)
+  // AI 自命题默认不计入掌握度/预测分，避免污染真题口径
+  const includeAi = getSettings().grading?.aiQuestionPolicy === 'include'
   const result: PredictionItem[] = []
   for (const examType of examTypes) {
     for (const type of types) {
       const related = records.filter((r) => {
         const q = getQuestionById(r.questionId)
-        return q?.type === type && q?.examType === examType
+        if (!q || q.type !== type || q.examType !== examType) return false
+        if (!includeAi && q.source === AI_GENERATED_SOURCE) return false
+        return true
       })
       if (related.length === 0) {
         result.push({ type, examType, avgRatio: null, predictedScore: null, count: 0 })
@@ -359,32 +364,42 @@ export function registerIpc(): void {
       const question = getQuestionById(payload.questionId)
       if (!question) return { ok: false, error: '题目不存在' }
 
-      const scoreResult = scoreAnswer(question, payload.answer)
-
+      const settings = getSettings()
+      const llm = settings.deepseek
+      let scoreResult = scoreAnswer(question, payload.answer)
       let feedback = ''
       let suggestions: string[] = []
       let modelAnswer = question.referenceAnswer
-      let dimensions: ScoreDimension[] | undefined
-      let losses: LossItem[] | undefined
-      let skeleton: SkeletonPart[] | undefined
+      let dimensions: PracticeRecord['dimensions']
+      let losses: PracticeRecord['losses']
+      let grading: PracticeRecord['grading']
+      let gradingVersion: string | undefined
 
-      const llm = getSettings().deepseek
       if (!llm.apiKey.trim()) {
         // 未配置 API Key：退化为本地规则评分，并引导免费领取 Key
         scoreResult.scoredBy = 'rule'
         feedback = NO_KEY_FEEDBACK
       } else {
         try {
-          const fb = await generateFeedback(llm, question, payload.answer, scoreResult, payload.province)
-          feedback = fb.feedback
-          suggestions = fb.suggestions
-          modelAnswer = fb.modelAnswer || question.referenceAnswer
-          // 用模型结果覆盖评分明细与总分，保证总分与「得分点/扣分点」明细一致
-          applyFeedbackScore(question, scoreResult, fb)
-          dimensions = buildDimensions(question, scoreResult, fb.dimensions)
-          losses = fb.losses
-          skeleton = fb.skeleton
+          const graded = await gradeQuestion({
+            question,
+            answer: payload.answer,
+            settings,
+            llm,
+            pool: getPointPool(question.id) ?? null
+          })
+          if (graded.poolIsNew && graded.pool) savePointPool(graded.pool)
+          scoreResult = graded.scoreResult
+          feedback = graded.feedback
+          suggestions = graded.suggestions
+          modelAnswer = graded.modelAnswer || question.referenceAnswer
+          dimensions = graded.grade.dimensions
+          losses = graded.losses
+          grading = graded.grade
+          gradingVersion = graded.grade.version
         } catch (err) {
+          // 新评分失败时保留旧规则评分兜底，避免无法提交
+          scoreResult = scoreAnswer(question, payload.answer)
           scoreResult.scoredBy = 'rule'
           feedback = `（AI 评分暂不可用：${(err as Error).message}）以下为本地规则评分，可稍后在设置中检查接口配置后重新练习。`
         }
@@ -407,7 +422,8 @@ export function registerIpc(): void {
         highlights: payload.highlights,
         dimensions,
         losses,
-        skeleton
+        grading,
+        gradingVersion
       }
       addRecord(record)
       return { ok: true, record }
@@ -421,22 +437,40 @@ export function registerIpc(): void {
     const question = getQuestionById(record.questionId)
     if (!question) return { ok: false, error: '题目不存在' }
 
-    const scoreResult = scoreAnswer(question, record.answer)
-    const llm = getSettings().deepseek
+    const settings = getSettings()
+    const llm = settings.deepseek
     // 未配置接口时不做重评，避免每次启动都空跑网络请求
     if (!llm.apiKey.trim()) return { ok: false, error: '未配置 AI 模型' }
     try {
-      const fb = await generateFeedback(llm, question, record.answer, scoreResult)
-      applyFeedbackScore(question, scoreResult, fb)
+      const graded = await gradeQuestion({
+        question,
+        answer: record.answer,
+        settings,
+        llm,
+        pool: getPointPool(question.id) ?? null
+      })
+      if (graded.poolIsNew && graded.pool) savePointPool(graded.pool)
+      const legacy =
+        record.legacy ??
+        ({
+          scoreResult: record.scoreResult,
+          feedback: record.feedback,
+          suggestions: record.suggestions,
+          modelAnswer: record.modelAnswer,
+          gradingVersion: record.gradingVersion ?? 'legacy-v1',
+          gradedAt: record.createdAt
+        } as PracticeRecord['legacy'])
       const next: PracticeRecord = {
         ...record,
-        scoreResult,
-        feedback: fb.feedback,
-        suggestions: fb.suggestions,
-        modelAnswer: fb.modelAnswer || question.referenceAnswer,
-        dimensions: buildDimensions(question, scoreResult, fb.dimensions),
-        losses: fb.losses,
-        skeleton: fb.skeleton
+        scoreResult: graded.scoreResult,
+        feedback: graded.feedback,
+        suggestions: graded.suggestions,
+        modelAnswer: graded.modelAnswer || question.referenceAnswer,
+        dimensions: graded.grade.dimensions,
+        losses: graded.losses,
+        grading: graded.grade,
+        gradingVersion: graded.grade.version,
+        legacy
       }
       updateRecord(next)
       return { ok: true, record: next }
@@ -470,6 +504,10 @@ export function registerIpc(): void {
     return getSettings()
   })
   ipcMain.handle('settings:test', () => testConnection(getSettings().deepseek))
+
+  // ---- 评分 v2 历史迁移 ----
+  ipcMain.handle('grading:migrationInfo', () => getGradingMigrationInfo())
+  ipcMain.handle('grading:runMigration', () => runGradingMigration())
 
   // ---- 局域网同步（桌面端为服务端）----
   ipcMain.handle('lanSync:info', () => getLanSyncInfo())

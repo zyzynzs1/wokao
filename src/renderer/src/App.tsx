@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
@@ -14,31 +14,40 @@ import SettingsPage from './pages/SettingsPage'
 
 export default function App(): JSX.Element {
   const { loading, user } = useAuth()
-  const migratedRef = useRef(false)
+  const [migrating, setMigrating] = useState(false)
+  const [migrationMessage, setMigrationMessage] = useState('')
 
-  // 历史记录自动升级：把仍是旧标准、或「得分与失分点自相矛盾」的记录按最新标准重评一遍
+  // 评分体系 v2 历史迁移：旧分保留在 record.legacy，按新标准重评一次。
+  // 不需要用户手动触发；失败条目会在下次启动再次尝试。
   useEffect(() => {
-    if (loading || !user || migratedRef.current) return
-    migratedRef.current = true
+    if (loading || !user) return
+    let cancelled = false
     void (async () => {
       try {
-        const records = await window.api.getRecords(user.id)
-        const pending = records.filter((r) => {
-          // 缺细分得分或答题骨架：仍是旧标准的历史记录
-          if (!r.dimensions?.length || !r.skeleton?.length) return true
-          const total = r.scoreResult.totalScore
-          const isFull = total > 0 && r.scoreResult.score >= total
-          const lossCount = r.losses?.length ?? 0
-          // 满分却仍列出失分点、或有扣分却没有失分点：与得分不自洽，需按新标准重评
-          return isFull ? lossCount > 0 : lossCount === 0
-        })
-        for (const r of pending) {
-          await window.api.reevaluateRecord(r.id)
-        }
-      } catch {
-        // 升级失败不打扰用户，下次启动会重试
+        const info = await window.api.getGradingMigrationInfo()
+        if (cancelled || !info.needed) return
+        setMigrating(true)
+        setMigrationMessage(`正在按新标准重评历史记录（共 ${info.total - info.done} 条）…`)
+        const res = await window.api.runGradingMigration()
+        if (cancelled) return
+        setMigrating(false)
+        setMigrationMessage(
+          res.ok
+            ? `历史记录已按新标准重评（${res.done} 条）`
+            : res.error
+              ? `历史重评未完成：${res.error}`
+              : `历史重评完成 ${res.done} 条，${res.failed} 条失败（下次启动会重试）`
+        )
+        window.setTimeout(() => setMigrationMessage(''), 8000)
+      } catch (err) {
+        if (cancelled) return
+        setMigrating(false)
+        setMigrationMessage(`历史重评失败：${(err as Error).message}`)
       }
     })()
+    return () => {
+      cancelled = true
+    }
   }, [loading, user])
 
   if (loading) {
@@ -46,19 +55,42 @@ export default function App(): JSX.Element {
   }
 
   return (
-    <Routes>
-      <Route element={<Layout />}>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/practice" element={<PracticePage />} />
-        <Route path="/practice/answer" element={<AnswerPage />} />
-        <Route path="/practice/result/:recordId" element={<ResultPage />} />
-        <Route path="/practice/paper-result" element={<PaperResultPage />} />
-        <Route path="/history" element={<HistoryPage />} />
-        <Route path="/study" element={<StudyPage />} />
-        <Route path="/study/:id" element={<StudyDetailPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <>
+      {migrationMessage && (
+        <div
+          style={{
+            position: 'fixed',
+            right: 20,
+            bottom: 20,
+            zIndex: 200,
+            maxWidth: 420,
+            padding: '10px 14px',
+            borderRadius: 10,
+            background: migrating ? 'rgba(31,41,55,0.95)' : 'rgba(22,101,52,0.95)',
+            color: '#fff',
+            fontSize: 13,
+            lineHeight: 1.6,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.25)'
+          }}
+        >
+          {migrating ? '⏳ ' : '✅ '}
+          {migrationMessage}
+        </div>
+      )}
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/practice" element={<PracticePage />} />
+          <Route path="/practice/answer" element={<AnswerPage />} />
+          <Route path="/practice/result/:recordId" element={<ResultPage />} />
+          <Route path="/practice/paper-result" element={<PaperResultPage />} />
+          <Route path="/history" element={<HistoryPage />} />
+          <Route path="/study" element={<StudyPage />} />
+          <Route path="/study/:id" element={<StudyDetailPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   )
 }

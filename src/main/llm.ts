@@ -570,6 +570,7 @@ ${leafTopicPaths().join('\n')}
 
 【参考答案】
 - 给出规范、完整、可直接对照阅卷的参考答案（小题贴近采分点，大作文给出范文）。
+- 参考答案字数必须达到作答要求字数上限的 85%–100%（小题不超过上限），不得只用提纲或要点罗列；大作文范文须完整成篇并落在规定字数区间内。
 
 ${
   avoidTitles.length > 0
@@ -667,6 +668,36 @@ ${
     gradingBands: isEssay ? parseGradingBands(parsed.gradingBands, score) : undefined,
     source: AI_GENERATED_SOURCE
   }
-  return { ...core, difficulty: calcDifficulty(core) }
+
+  // ---- AI 自命题质量自检（不合格拒绝入库，避免后续评分失真）----
+  const warnings: string[] = []
+  const refChars = core.referenceAnswer.replace(/\s/g, '').length
+  const minRef = isEssay ? Math.max(600, Math.round(wordLimit * 0.5)) : Math.max(120, Math.round(wordLimit * 0.5))
+  if (refChars < minRef) {
+    warnings.push(`参考答案偏短（${refChars} 字，期望 ≥${minRef} 字）`)
+    return null
+  }
+  if (isEssay) {
+    if (!core.gradingBands || core.gradingBands.length < 3) return null
+  } else {
+    if (core.scoringPoints.length < 3) return null
+    if (core.scoringPoints.some((p) => p.keywords.length === 0)) return null
+    const pointsSum = core.scoringPoints.reduce((s, p) => s + p.score, 0)
+    if (pointsSum !== core.score) return null
+  }
+  if (core.material.replace(/\s/g, '').length < 600) return null
+
+  return {
+    ...core,
+    difficulty: calcDifficulty(core),
+    referenceSource: 'ai',
+    generationMeta: {
+      model: deepseek.model,
+      promptVersion: 'question-generation-v2.0',
+      createdAt: Date.now(),
+      validated: true,
+      warnings: warnings.length > 0 ? warnings : undefined
+    }
+  }
 }
 

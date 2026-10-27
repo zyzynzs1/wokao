@@ -39,6 +39,24 @@ export interface SubmitResult {
 // 重新评审结果
 export type ReevaluateResult = SubmitResult
 
+// 评分 v2 历史迁移
+export interface GradingMigrationInfo {
+  needed: boolean
+  total: number
+  done: number
+  failed: number
+  running: boolean
+  version: string
+}
+
+export interface GradingMigrationResult {
+  ok: boolean
+  total: number
+  done: number
+  failed: number
+  error?: string
+}
+
 export interface Api {
   ensureDefaultUser: () => Promise<SafeUser>
 
@@ -93,6 +111,10 @@ export interface Api {
   getSettings: () => Promise<AppSettings>
   updateSettings: (next: AppSettings) => Promise<AppSettings>
   testConnection: () => Promise<{ ok: boolean; message: string }>
+
+  // 评分 v2：历史记录迁移（旧分保存到 legacy，再按新标准重评）
+  getGradingMigrationInfo: () => Promise<GradingMigrationInfo>
+  runGradingMigration: () => Promise<GradingMigrationResult>
 
   // 局域网同步：桌面端为服务端，手机端为客户端
   getLanSyncInfo: () => Promise<LanSyncInfo>

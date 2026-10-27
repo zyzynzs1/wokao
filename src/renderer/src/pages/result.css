@@ -268,3 +268,94 @@
   gap: 12px;
   padding-bottom: 20px;
 }
+
+/* ============ 评分 v2：逐点核对 ============ */
+.result-points-table {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.result-points-head,
+.result-point-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1.4fr 96px 64px;
+  gap: 12px;
+  align-items: start;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+.result-points-head {
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: #f6f8fb;
+  font-weight: 600;
+}
+.result-point-row {
+  background: #fafbfc;
+  border: 1px solid #eef0f2;
+  font-size: 13px;
+}
+.result-point-text {
+  color: #111827;
+  line-height: 1.6;
+}
+.result-point-evidence {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #98a2b3;
+  line-height: 1.6;
+}
+.result-point-quote {
+  color: #374151;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+.result-expansion {
+  color: #98a2b3;
+  font-size: 12px;
+}
+.result-empty-inline {
+  color: #b0b7c3;
+  font-size: 12px;
+}
+.result-point-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.result-point-status.ok {
+  background: #e8f7ee;
+  color: #166534;
+}
+.result-point-status.partial {
+  background: #fff7e6;
+  color: #b45309;
+}
+.result-point-status.none {
+  background: #fdecec;
+  color: #b42318;
+}
+.result-point-status.out {
+  background: #f2f4f7;
+  color: #667085;
+}
+.result-confidence {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+.result-confidence-high {
+  background: #e8f7ee;
+  color: #166534;
+}
+.result-confidence-mid {
+  background: #fff7e6;
+  color: #b45309;
+}
+.result-confidence-low {
+  background: #fdecec;
+  color: #b42318;
+}

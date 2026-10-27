@@ -14,6 +14,8 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "build:mobile": "vite build --config vite.mobile.config.ts",
     "dev:mobile": "vite --config vite.mobile.config.ts --host --port 5174",
+    "grade:dry": "node scripts/run-grading-cli.js dry",
+    "grade:migrate": "node scripts/run-grading-cli.js migrate",
     "dist": "npm run gen:icon && electron-vite build && electron-builder --publish never && node scripts/copy-to-root.js"
   },
   "devDependencies": {

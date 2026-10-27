@@ -99,6 +99,16 @@ export interface Question {
   gradingBands?: GradingBand[] // 大作文划档
   modelEssay?: string // 大作文范文
   source: string // 真题来源
+  // 参考答案可信度来源：真题官方/机构整理/软件自编/AI 生成，用于评分时判断参考锚点强度
+  referenceSource?: 'official' | 'institution' | 'ai' | 'none'
+  // AI 自动命题的生成元数据（用于评分降置信度与统计隔离）
+  generationMeta?: {
+    model: string
+    promptVersion: string
+    createdAt: number
+    validated: boolean
+    warnings?: string[]
+  }
 }
 
 // 用户
@@ -171,6 +181,10 @@ export interface PracticeRecord {
   losses?: LossItem[] // 主要失分点及原因
   skeleton?: SkeletonPart[] // 答题骨架（只给层级与每层写什么，不含具体内容）
   template?: string // 旧版骨架文本（早期记录遗留，仅在还没有 skeleton 时兜底展示）
+  // ---- 评分体系 v2 ----
+  grading?: GradeResultV2 // 新评分结果（档位/中心分/区间/置信度/逐点覆盖）
+  gradingVersion?: string // 评分标准版本，如 'grading-v2.0'
+  legacy?: LegacyGrading // 历史评分快照（迁移时不丢旧数据；界面默认不展示）
 }
 
 // 答题骨架的一个层级，如 { part: '一、基本情况', how: '改革背景 + 总体成效，一句话概括' }
@@ -341,6 +355,7 @@ export interface AppSettings {
     model: string
     apiKey: string
   }
+  grading?: GradingSettings // 评分体系 v2 设置
 }
 
 // 作答布局：vertical=资料在上、作答在下；horizontal=资料在左、作答在右并对齐
@@ -398,4 +413,148 @@ export interface ProgressSyncResult {
   addedQuestions?: number
   peers?: number // 本次参与合并的对端文件数
   total?: number // 合并后本机作答记录总数
+}
+
+// ============================================================
+// 评分体系 v2（路线 B：材料建点 + 参考答案校准 + AI 判点 + 代码算分）
+// ============================================================
+
+export const GRADING_VERSION = 'grading-v2.0'
+
+// 覆盖状态：完整 / 等义 / 部分 / 未覆盖 / 材料外
+export type CoverageStatus = 'full' | 'equivalent' | 'partial' | 'none' | 'out_of_material'
+
+// 展开度：充分 / 基本 / 简略 / 仅列标题 / 未提及
+export type ExpansionLevel = 'full' | 'basic' | 'brief' | 'title' | 'none'
+
+// 评分点（可独立判定的给分单位）
+export interface GradingPoint {
+  id: string
+  text: string // 标准要点（可独立判定）
+  group?: string // 分组/考点，仅展示
+  weight: number // 归一化后分值（分）
+  evidence: string // 材料出处：[材料X第Y段]：原句
+  independent: boolean // 是否独立计分
+  source: 'material' | 'reference' // 来源：材料遍历 / 参考答案
+}
+
+// 题干约束
+export interface GradingConstraints {
+  minChars: number | null
+  maxChars: number | null
+  requireItems: boolean // 题干是否要求分条/分类
+  requiredFormat: string[] // 应用文必需格式要素（标题/称谓/落款/日期等）
+  notes: string
+}
+
+// 点池（同一题冻结复用；变更需升版本）
+export interface PointPool {
+  questionId: string
+  version: string // grading-v2.0
+  type: QuestionType
+  points: GradingPoint[]
+  constraints: GradingConstraints
+  calibration: {
+    referenceUsed: boolean
+    addedFromMaterial: string[] // 参考答案没写、材料补充的要点
+    merged: string[] // 同一功能被拆过碎、已合并的说明
+    conflicts: string[] // 参考答案与材料冲突
+  }
+  referenceQuality: 'strong' | 'weak' | 'none'
+  createdAt: number
+  model: string
+}
+
+// 单点覆盖判定结果
+export interface PointCoverage {
+  pointId: string
+  pointText?: string // 标准要点（评分时从点池带出，便于结果页展示）
+  pointEvidence?: string // 材料依据
+  status: CoverageStatus
+  expansion: ExpansionLevel
+  factor?: number // 两次独立判定分歧时的平均覆盖系数（0-1；不展示给用户）
+  userQuote?: string // 考生原句（命中/部分必须有）
+  materialEvidence?: string // 材料依据
+  note?: string
+}
+
+// 大作文维度诊断（0-4 级）
+export interface GradingDimension {
+  name: string
+  level: number // 0-4
+  note: string
+}
+
+export interface EssayHardIssue {
+  type: '字数' | '抄材料' | '标题' | '分论点' | '跑题' | '其他'
+  detail: string
+  penalty: number
+}
+
+export type EssayTier = '一类文' | '二类文' | '三类文' | '四类文'
+
+// 大作文评阅（袁东累进四类文 + 硬规则）
+export interface EssayReview {
+  topicType: 'single' | 'double' | 'multi'
+  relationType?: 'AB' | 'ABC'
+  essayStyle: '政论' | '策论' | '议论'
+  offTopic: boolean
+  offTopicReason: string
+  titleHasThemeWord: boolean
+  structureCorrect: boolean
+  openingEndingGood: boolean
+  subArgumentEvidenceGood: boolean
+  tier: EssayTier
+  tierReason: string
+  dimensions: GradingDimension[]
+  hardIssues: EssayHardIssue[]
+}
+
+// 形式扣分
+export interface FormatDeduction {
+  type: string
+  reason: string
+  value: number
+}
+
+// 新评分总结果
+export interface GradeResultV2 {
+  version: string
+  mode: 'points' | 'application' | 'essay'
+  tier: string // 一档~五档 / 一类文~四类文
+  center: number // 中心分（建议分）
+  range: [number, number] // 建议区间
+  confidence: '高' | '中' | '低'
+  confidenceReason: string
+  pointCoverage?: PointCoverage[]
+  formatDeductions?: FormatDeduction[]
+  dimensions?: { name: string; got: number; full: number; note: string }[]
+  essay?: EssayReview
+  warnings: string[]
+  model: string
+  aiQuestion: boolean
+  reviewAgreement?: number | null // 复核一致率（0-1），null 表示未复核
+}
+
+// 迁移时保留的旧评分快照（界面默认不展示，仅用于回退/对比）
+export interface LegacyGrading {
+  scoreResult: ScoreResult
+  feedback: string
+  suggestions: string[]
+  modelAnswer: string
+  gradingVersion: string
+  gradedAt: number
+}
+
+// 评分 v2 设置
+export interface GradingSettings {
+  secondPass: 'off' | 'same-model' | 'second-provider'
+  reviewProvider?: {
+    provider: string
+    baseUrl: string
+    model: string
+    apiKey: string
+  }
+  aiQuestionPolicy: 'separate' | 'exclude-stats' | 'include'
+  migrationVersion?: string
 }
