@@ -1,5 +1,5 @@
 import { app, BrowserWindow, globalShortcut, shell } from 'electron'
-import { appendFileSync, mkdirSync } from 'fs'
+import { appendFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { initStore } from './store'
 import { registerIpc } from './ipc'
@@ -30,6 +30,12 @@ try {
 
 let mainWindow: BrowserWindow | null = null
 
+// 窗口/任务栏图标使用项目自己的图标（宿主运行时可能是别的签名 exe）
+const windowIcon = [
+  join(process.resourcesPath, 'icon.png'),
+  join(__dirname, '../../build/icon.png')
+].find((p) => existsSync(p))
+
 // 老板键：隐藏/显示窗口，连同任务栏图标一起隐藏
 function toggleBossKey(): void {
   const win = mainWindow
@@ -53,6 +59,7 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     title: 'wokao',
+    icon: windowIcon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
