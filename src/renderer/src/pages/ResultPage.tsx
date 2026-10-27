@@ -35,6 +35,12 @@ const EXPANSION_LABEL: Record<ExpansionLevel, string> = {
   none: '—'
 }
 
+// 分数展示：最多保留 1 位小数
+function fmtScore(n: number): string {
+  const v = Math.round((Number.isFinite(n) ? n : 0) * 10) / 10
+  return Number.isInteger(v) ? String(v) : v.toFixed(1)
+}
+
 function coverageClass(status: CoverageStatus): string {
   if (status === 'full' || status === 'equivalent') return 'result-point-status ok'
   if (status === 'partial') return 'result-point-status partial'
@@ -114,7 +120,7 @@ export default function ResultPage(): JSX.Element {
       <div className="card result-score-card">
         <div className="result-score-main">
           <div className="result-score-num">
-            {grading ? grading.center : scoreResult.score}
+            {fmtScore(grading ? grading.center : scoreResult.score)}
             <span className="result-score-total"> / {scoreResult.totalScore} 分</span>
           </div>
           <div className="result-score-ratio">
@@ -202,7 +208,7 @@ export default function ResultPage(): JSX.Element {
                   />
                 </span>
                 <span className="result-dim-score">
-                  {d.got}/{d.full}
+                  {fmtScore(d.got)}/{fmtScore(d.full)}
                 </span>
               </div>
             ))}
@@ -249,7 +255,7 @@ export default function ResultPage(): JSX.Element {
                     <span className={coverageClass(c.status)}>{COVERAGE_LABEL[c.status]}</span>
                   </div>
                   <div className="result-point-score">
-                    {p ? `${p.got}/${p.score}` : '—'}
+                    {p ? `${fmtScore(p.got)}/${fmtScore(p.score)}` : '—'}
                   </div>
                 </div>
               )
@@ -264,7 +270,9 @@ export default function ResultPage(): JSX.Element {
           <ul className="result-losses">
             {grading.formatDeductions.map((d, i) => (
               <li key={i} className="result-loss">
-                <div className="result-loss-title">{d.type}：-{d.value} 分</div>
+                <div className="result-loss-title">
+                  {d.type}：-{fmtScore(d.value)} 分
+                </div>
                 <div className="result-loss-reason">{d.reason}</div>
               </li>
             ))}

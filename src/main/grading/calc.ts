@@ -62,7 +62,8 @@ export function computePointScores(
           ? 1
           : (EXPANSION_FACTOR[c.expansion] ?? 1)
     const got = roundHalfUp(point.weight * cf * ef, 0.1)
-    details.push({ pointId: point.id, label: point.text, full: point.weight, got })
+    // 展示用分值同样保留 1 位小数，避免出现 2.857142857 这类长小数
+    details.push({ pointId: point.id, label: point.text, full: roundHalfUp(point.weight, 0.1), got })
   }
   const pointResults: PointResult[] = details.map((d) => ({
     pointId: d.pointId,

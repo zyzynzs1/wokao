@@ -22,6 +22,12 @@ function formatDuration(seconds: number): string {
   return `${m} 分 ${s} 秒`
 }
 
+// 分数展示：最多保留 1 位小数（避免出现 2.857142857 这类长小数）
+function fmtScore(n: number): string {
+  const v = Math.round((Number.isFinite(n) ? n : 0) * 10) / 10
+  return Number.isInteger(v) ? String(v) : v.toFixed(1)
+}
+
 export default function HistoryPage(): JSX.Element {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -60,19 +66,6 @@ export default function HistoryPage(): JSX.Element {
     () => (filter === '全部' ? records : records.filter((r) => r.practiceType === filter)),
     [records, filter]
   )
-
-  const grouped = useMemo(() => {
-    const byPaper = new Map<string, PracticeRecord[]>()
-    const singles: PracticeRecord[] = []
-    for (const r of filteredRecords) {
-      if (r.paperId) {
-        byPaper.set(r.paperId, [...(byPaper.get(r.paperId) ?? []), r])
-      } else {
-        singles.push(r)
-      }
-    }
-    return { byPaper, singles }
-  }, [filteredRecords])
 
   const repractice = (record: PracticeRecord): void => {
     navigate('/practice/answer', {
@@ -179,7 +172,7 @@ export default function HistoryPage(): JSX.Element {
           </div>
           <div className="history-side">
             <div className="history-score">
-              {r.scoreResult.score}
+              {fmtScore(r.scoreResult.score)}
               <span className="history-score-total">/{r.scoreResult.totalScore}</span>
             </div>
             <div className="history-ratio">{(r.scoreResult.ratio * 100).toFixed(0)}%</div>
@@ -210,7 +203,7 @@ export default function HistoryPage(): JSX.Element {
                 <div className="history-points">
                   {hit.map((p) => (
                     <span key={p.pointId} className="history-point hit">
-                      {p.label}（+{p.got}）
+                      {p.label}（+{fmtScore(p.got)}）
                     </span>
                   ))}
                 </div>
@@ -222,7 +215,7 @@ export default function HistoryPage(): JSX.Element {
                 <div className="history-points">
                   {miss.map((p) => (
                     <span key={p.pointId} className="history-point miss">
-                      {p.label}（-{p.score - p.got}）
+                      {p.label}（-{fmtScore(p.score - p.got)}）
                     </span>
                   ))}
                 </div>
@@ -234,7 +227,7 @@ export default function HistoryPage(): JSX.Element {
                 <div className="history-dims">
                   {r.dimensions.map((d) => (
                     <span key={d.name} className="history-dim">
-                      {d.name} {d.got}/{d.full}
+                      {d.name} {fmtScore(d.got)}/{fmtScore(d.full)}
                     </span>
                   ))}
                 </div>
@@ -283,9 +276,10 @@ export default function HistoryPage(): JSX.Element {
     )
   }
 
+  // 历史记录严格按时间倒序（最新在最上面）；不再按套卷分组打乱顺序
   const flatRecords = useMemo(
-    () => [...grouped.singles, ...Array.from(grouped.byPaper.values()).flat()],
-    [grouped]
+    () => [...filteredRecords].sort((a, b) => b.createdAt - a.createdAt),
+    [filteredRecords]
   )
 
   return (
