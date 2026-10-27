@@ -306,7 +306,7 @@ export const MODEL_PRESETS: ModelPreset[] = [
     id: 'deepseek',
     label: 'DeepSeek 官方（按量付费）',
     baseUrl: 'https://api.deepseek.com/v1',
-    model: 'deepseek-chat',
+    model: 'deepseek-flash',
     free: false,
     applyUrl: 'https://platform.deepseek.com/api_keys',
     note: '评分质量最稳定，按量付费。'

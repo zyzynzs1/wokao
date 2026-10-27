@@ -29,6 +29,7 @@ async function requestChat(
   messages: ChatMessage[],
   opts: { temperature?: number; maxTokens?: number; useJsonMode: boolean }
 ): Promise<string> {
+  const isDeepSeek = /deepseek\.com/i.test(s.baseUrl)
   const res = await fetch(`${s.baseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -40,6 +41,9 @@ async function requestChat(
       messages,
       temperature: opts.temperature ?? 0.3,
       max_tokens: opts.maxTokens ?? 4000,
+      // DeepSeek V4 系列默认开启思考模式，会消耗 max_tokens 且不支持 temperature；
+      // 本应用为评分/命题场景，统一关闭思考，保证稳定出结果。
+      ...(isDeepSeek ? { thinking: { type: 'disabled' } } : {}),
       ...(opts.useJsonMode ? { response_format: { type: 'json_object' } } : {})
     })
   })
@@ -97,97 +101,38 @@ export interface FeedbackResult {
   skeleton?: SkeletonPart[]
 }
 
-// 各题型答题骨架范式：只描述"分几层、每层写什么"，不含具体内容
-const SKELETON_PATTERN: Record<QuestionType, string> = {
-  归纳概括: '总括句（一句话点明总体情况）；分条罗列要点，每条“概括词 + 具体表现”',
-  综合分析: '一、解释含义或亮明观点；二、展开分析（原因 / 影响 / 本质）；三、得出结论或给出对策',
-  提出对策: '一、问题梳理；二、对策分条罗列，每条“主体 + 措施 + 目的”',
-  应用文写作:
-    '标题；称谓（按文种）；一、背景与总体情况；二、具体做法及成效；三、存在问题；四、下一步安排；落款（单位、日期按文种决定）',
-  文章论述: '标题（点明总论点）；开头（引出话题 + 亮明总论点）；分论点一 / 二 / 三（分论点 + 论据 + 回扣）；结尾（总结升华）'
-}
-
-// 细分维度定义：小题维度固定；大作文仅作为「建议维度」提供给模型参考，模型可自行调整
-const DIMENSION_CONFIG: Record<'small' | 'essay', { name: string; weight: number }[]> = {
-  small: [
-    { name: '结构', weight: 0.2 },
-    { name: '要点', weight: 0.6 },
-    { name: '语言', weight: 0.2 }
-  ],
-  essay: [
-    { name: '立意', weight: 0.2 },
-    { name: '结构', weight: 0.2 },
-    { name: '论证', weight: 0.3 },
-    { name: '语言', weight: 0.2 },
-    { name: '字数与卷面', weight: 0.1 }
-  ]
-}
-
-function dimensionBars(isEssay: boolean, totalScore: number): ScoreDimension[] {
-  const config = DIMENSION_CONFIG[isEssay ? 'essay' : 'small']
-  const bars: ScoreDimension[] = config.map((c) => ({
-    name: c.name,
-    got: 0,
-    full: Math.floor(totalScore * c.weight)
-  }))
-  let rest = totalScore - bars.reduce((s, b) => s + b.full, 0)
-  for (let i = 0; rest > 0; i = (i + 1) % bars.length, rest--) bars[i].full += 1
-  return bars
-}
-
-// 整理模型给出的细分维度：大作文完全采用模型的维度与分值，小题对齐到固定维度
+// 整理模型给出的细分维度：维度名与分值全部采用模型判定，软件只做一致性校正
 export function buildDimensions(
-  question: Question,
+  _question: Question,
   scoreResult: ScoreResult,
   aiDims?: { name: string; got: number; full?: number }[]
 ): ScoreDimension[] {
   if (!aiDims || aiDims.length === 0) return []
 
-  // 大作文：维度名与各维度满分都由模型按官方阅卷标准给出，软件不再套用权重、不平摊残差
-  if (question.type === '文章论述') {
-    const list: ScoreDimension[] = aiDims
-      .map((d) => ({
-        name: String(d.name ?? '').trim(),
-        full: Math.max(0, Math.round(Number(d.full ?? 0))),
-        got: Math.max(0, Math.round(Number(d.got ?? 0)))
-      }))
-      .filter((d) => d.name !== '' && d.full > 0)
-    if (list.length === 0) return []
-    // 仅做一致性校正：各维度满分之和须等于卷面总分（按比例缩放满分，不改动实得分）
-    const sumFull = list.reduce((s, d) => s + d.full, 0)
-    if (sumFull !== scoreResult.totalScore) {
-      const scale = scoreResult.totalScore / sumFull
-      let acc = 0
-      list.forEach((d, i) => {
-        const next = i === list.length - 1 ? scoreResult.totalScore - acc : Math.round(d.full * scale)
-        d.full = Math.max(0, next)
-        acc += d.full
-      })
-    }
-    list.forEach((d) => {
-      d.got = Math.min(d.got, d.full)
-    })
-    return list
-  }
+  const list: ScoreDimension[] = aiDims
+    .map((d) => ({
+      name: String(d.name ?? '').trim(),
+      full: Math.max(0, Math.round(Number(d.full ?? 0))),
+      got: Math.max(0, Math.round(Number(d.got ?? 0)))
+    }))
+    .filter((d) => d.name !== '' && d.full > 0)
+  if (list.length === 0) return []
 
-  // 小题：维度固定（结构/要点/语言），并保证各维度实得分之和 = 总分
-  const bars = dimensionBars(false, scoreResult.totalScore)
-  const byName = new Map(aiDims.map((d) => [d.name.trim(), d.got]))
-  // 模型未按给定维度名返回时，放弃细分而不是错配
-  if (bars.some((b) => !byName.has(b.name))) return []
-  const list = bars.map((b) => ({
-    ...b,
-    got: Math.max(0, Math.min(b.full, Math.round(byName.get(b.name) ?? 0)))
-  }))
-  let diff = scoreResult.score - list.reduce((s, d) => s + d.got, 0)
-  for (const d of list) {
-    if (diff === 0) break
-    const room = diff > 0 ? d.full - d.got : d.got
-    const move = diff > 0 ? Math.min(diff, room) : -Math.min(-diff, room)
-    d.got += move
-    diff -= move
+  // 仅做一致性校正：各维度满分之和须等于卷面总分（按比例缩放满分，不改动实得分）
+  const sumFull = list.reduce((s, d) => s + d.full, 0)
+  if (sumFull !== scoreResult.totalScore) {
+    const scale = scoreResult.totalScore / sumFull
+    let acc = 0
+    list.forEach((d, i) => {
+      const next = i === list.length - 1 ? scoreResult.totalScore - acc : Math.round(d.full * scale)
+      d.full = Math.max(0, next)
+      acc += d.full
+    })
   }
-  return diff === 0 ? list : []
+  list.forEach((d) => {
+    d.got = Math.min(d.got, d.full)
+  })
+  return list
 }
 
 export async function testConnection(
@@ -222,46 +167,6 @@ function extractJson(text: string): unknown {
   return null
 }
 
-// 依据「考试类型 + 题型」给出评分标准说明，作为模型打分的唯一依据
-function gradingStandard(question: Question, province?: string): string {
-  const { examType, subType, type } = question
-  const byType: Record<QuestionType, string> = {
-    归纳概括:
-      '按点给分，要点齐全、准确是第一位的（约占 70%-80%）；条理清晰、分条作答；表述应与材料原词一致。',
-    综合分析:
-      '解释（观点）准确 + 分析透彻 + 逻辑清晰 + 结论/要求到位；只罗列不理解、只分析不结论的按比例扣分。',
-    提出对策:
-      '先概括问题、再给对策；对策须具体、可行、有针对性、有主体，空泛或与问题不对应的要扣分。',
-    应用文写作:
-      '格式与要素（标题、称谓、正文、落款等，按文种）齐全 + 内容全面 + 语言得体；缺要素、文种不符、格式错误的单独扣分。',
-    文章论述:
-      '按划档给分：立意是否紧扣题意且深刻、结构是否完整、分论点是否清晰、语言是否规范流畅、字数与卷面是否符合要求。'
-  }
-  const examLine =
-    examType === '国考'
-      ? `本题属于【国考·${subType}】，按国考标准从严把握：${
-          subType === '副省级'
-            ? '更看重分析深度与思想性'
-            : subType === '地市级'
-              ? '更看重切合实际、措施可行'
-              : '更看重依法执法、规范用语与程序意识'
-        }。`
-      : `本题属于【省考${province ? `（${province}）` : ''}】，按省考标准：相对注重基层实务与可操作性，但格式、字数与表达规范同样从严。`
-  return (
-    `【阅卷要点参考（${examType}·${subType}·${type}）】\n` +
-    '（以下要点由软件整理，仅供你判断时参考；最终打分请你按自己掌握的该题型官方阅卷标准独立判定，不要机械套用本文本）\n' +
-    `${examLine}\n` +
-    `${byType[type]}\n` +
-    '共性扣分项（出现下列问题必须扣分，不得因此给满分）：' +
-    '①忠于材料，不得拔高、不得添加材料中没有的效果或因果；' +
-    '②照抄材料：与【给定资料】连续重合达 20 字以上的句子，一律判为照抄材料并扣分；' +
-    '③术语与固定表述必须准确（如“双随机、一公开”不得写成“双随机，一公开”，“跨部门联合检查”不得写成“联合调查”）；' +
-    '④条理清晰、分条作答，语言规范、不啰嗦；' +
-    '⑤错别字、标点及固定表述错误每处扣 0.5-1 分；' +
-    '⑥字数量化扣分：少于规定字数下限的，每少 50 字扣 1 分（不足 50 字按 50 字计），最多扣 3 分；明显超出上限的同样每 50 字扣 1 分、最多扣 3 分。'
-  )
-}
-
 // 生成点评与范文；小题由模型逐点给出实得分，大作文由模型给档位与分数
 export async function generateFeedback(
   deepseek: DeepSeekConfig,
@@ -274,106 +179,54 @@ export async function generateFeedback(
   const provinceNote = province && question.examType === '省考' ? `（目标省份：${province}）` : ''
 
   const systemPrompt =
-    '你是国家公务员录用考试《申论》科目的资深阅卷专家，精通国考与省考申论的官方阅卷标准。' +
-    '请依据该题型的官方阅卷标准，对考生作答进行独立、客观、准确、有建设性的评判，' +
-    '不得编造采分点，不得脱离材料与作答随意打分。' +
-    '你是本题唯一评分方：最终得分、档位、细分维度与失分点全部由你独立判定；' +
-    '题目中给出的评分材料仅作参考，不得机械套用，也不得照搬其中的表述当作结论。' +
-    '打分必须从严把握、宁严勿松：要点不完整、表述不准确、扣题不紧、逻辑混乱或格式不规范都应如实扣分，' +
-    '不得因考生答案“沾边”就给出高分。所有建议必须合理、可操作。\n' +
-    '点评要求（务必逐条落实）：\n' +
+    '你是国家公务员录用考试《申论》科目的资深阅卷专家，熟悉国考、省考申论的官方阅卷标准。' +
+    '评分时必须使用与本题考试层级相对应的、你所掌握的现行最新官方阅卷要求' +
+    '（国考副省级、地市级、行政执法类，省考省市级、县乡级各不相同），' +
+    '不得混用其他层级、其他考试或过时版本的评分标准。' +
+    '请只依据【题目】【作答要求】【给定资料】和【考生作答】独立评分，不要依赖任何预置答案、采分点、维度或评分细则。' +
+    '评分必须严格、客观、准确：要点是否齐全、表述是否准确、是否紧扣题目、逻辑与格式是否规范，均按你所掌握的官方阅卷标准判断；' +
+    '不得因答案“沾边”“字数达标”“格式完整”就给高分，也不得凭空拔高或压低。' +
+    '点评要具体、可操作；失分点必须与你实际扣分的原因一一对应，没有失分就不要编造。\n' +
+    '输出要求：\n' +
     '1. 先给出细分维度得分，再给结论，不得只有笼统结论；\n' +
-    '2. 主要失分点必须与实际扣分一一对应：只针对你确实扣了分的采分点（或维度）逐条列出，' +
-    '每条都要说清“为什么失分”——规范要求是什么、考生实际写成了什么、应该怎么写；' +
-    '若本题考生作答没有失分（各采分点均满分），则不要编造失分点，losses 必须返回空数组 []；\n' +
-    '3. 若存在下列硬伤并已据此扣分，需在失分点中说明其扣分原因：漏写关键数据、错别字或用词错误、文体/格式不符（如汇报提纲缺“总体成效—具体做法及成效—存在问题—下一步安排”层次）、' +
-    '把不同层次内容混写、语言啰嗦或作文腔；未据此扣分的不要列为失分点；\n' +
-    '4. 最后给出该题型的答题骨架：只写“分几层、每层写什么”，必须弱化具体内容，不得照抄范文、不得复述材料原文。'
-
-  const bandInfo = isEssay
-    ? `\n\n【划档评分标准】\n${(question.gradingBands ?? [])
-        .map((b) => `${b.band}：${b.scoreRange[0]}-${b.scoreRange[1]}分，${b.description}`)
-        .join('\n')}`
-    : ''
-
-  const pointsInfo =
-    !isEssay && question.scoringPoints.length > 0
-      ? `\n\n【参考采分点（软件预置，非官方标准，仅供参考；你可以按官方阅卷标准自行增删、合并或重新命名）】\n${question.scoringPoints
-          .map((p) => `${p.id}｜${p.label}｜参考分值 ${p.score} 分`)
-          .join('\n')}`
-      : ''
-
-  // 大作文：细分维度由模型按官方阅卷维度自行确定，软件不再预设权重
-  const dimensionsInfo = isEssay
-    ? `\n\n【细分维度（本卷满分 ${question.score} 分）】\n细分维度由你按该题型的官方阅卷维度自行确定（3-5 个；可参考：${dimensionBars(true, question.score)
-        .map((d) => d.name)
-        .join('、')}，也可按你的判断调整），并为每个维度给出满分。\n约束：各维度满分之和必须等于 ${question.score} 分；各维度实得分之和必须等于你给出的 score。`
-    : `\n\n【细分维度（本卷满分 ${question.score} 分）】\n${dimensionBars(false, question.score)
-        .map((d) => `${d.name}：满分 ${d.full} 分`)
-        .join('\n')}\n（各维度实得分之和必须等于总分，即各采分点实得分之和）`
+    '2. 失分点只列确实扣了分的，逐条说明“规范要求什么、考生写成什么、应该怎么写”；\n' +
+    '3. 答题骨架只写“分几层、每层写什么”，不得照抄范文或复述材料原文。'
 
   const commonSchema = `
-  "losses": [{"title": "主要失分点（必须是实际扣了分的点，一句话，按扣分多少排序，1-5 条；无失分则为空数组 []）", "reason": "为什么失分：规范要求是什么 + 你实际写成了什么 + 应该怎么写"}],
-  "skeleton": [{"part": "层级标题，如 一、基本情况", "how": "这一层该写什么（只写要素与写法，如“改革背景 + 总体成效，一句话概括”）"}]`
+  "losses": [{"title": "主要失分点（必须是实际扣了分的点，一句话，按扣分多少排序，1-5 条；无失分则为空数组 []）", "reason": "为什么失分：规范要求是什么 + 考生实际写成了什么 + 应该怎么写"}],
+  "skeleton": [{"part": "层级标题，如 一、基本情况", "how": "这一层该写什么（只写要素与写法）"}]`
 
-  const dimensionsSchema = isEssay
-    ? `,
-  "dimensions": [{"name": "维度名（由你按官方阅卷维度确定）", "full": 数字（该维度满分）, "got": 数字（该维度实得分，0 到该维度满分之间）}]${commonSchema}`
-    : `,
-  "dimensions": [{"name": "维度名（必须与上面给定的维度名完全一致）", "got": 数字（该维度实得分，0 到该维度满分之间）}]${commonSchema}`
-
-  const outputSchema = isEssay
-    ? `{
-  "feedback": "综合点评：先肯定优点，再指出主要不足，结合划档标准说明失分原因，100-200字",
+  const outputSchema = `{
+  "feedback": "综合点评：先肯定优点，再指出主要不足，结合你的评分说明失分原因，100-200字",
   "suggestions": ["改进建议1", "改进建议2", "改进建议3"],
-  "modelAnswer": "给出该题的高分范文：必须完整成篇，正文字数符合【作答要求】中的字数规定（如要求 1000—1200 字，则正文不得少于 1000 字、不超过 1200 字），贴近参考答案的立意与结构，规范、充实，严禁只写提纲、要点罗列或缩写",
-  "score": 数字（你按官方阅卷标准独立判定的得分，0-${question.score} 之间、可为 0.5 倍数，且必须落在你判定的档位区间内）,
-  "band": "${question.gradingBands?.map((b) => b.band).join('/') ?? '一类文/二类文/三类文/四类文'}"${dimensionsSchema}
-}`
-    : `{
-  "feedback": "综合点评：先肯定优点，再指出主要不足，结合采分点说明失分原因，100-200字",
-  "suggestions": ["改进建议1", "改进建议2", "改进建议3"],
-  "modelAnswer": "给出该题的高分参考答案（规范、完整；须由你独立撰写，不得照搬预置参考答案）",
+  "modelAnswer": "${
+    isEssay
+      ? '给出该题的高分范文：必须完整成篇，正文字数符合【作答要求】中的字数规定，严禁只写提纲、要点罗列或缩写'
+      : '给出该题的高分参考答案：规范、完整，由你独立撰写'
+  }",
   "score": 数字（你按官方阅卷标准独立判定的得分，0-${question.score} 之间、可为 0.5 倍数）,
-  "points": [{"id": "采分点编号（由你自主确定）", "label": "采分点名称", "full": 数字（该点满分）, "got": 数字（该点实得分，0 到该点满分之间、可为 0.5 倍数）}]${dimensionsSchema}
+  "points": [{"id": "由你自主确定的编号", "label": "采分点名称", "full": 数字（该点满分）, "got": 数字（该点实得分）}],
+  "dimensions": [{"name": "维度名（由你按该题型自行确定 3-5 个）", "full": 数字（该维度满分）, "got": 数字（该维度实得分）}]${
+    isEssay ? ',\n  "band": "你判定的档位（如一类文/二类文/三类文/四类文）"' : ''
+  },${commonSchema}
 }`
 
   const userPrompt = `【题目类型】${question.type}（${question.examType}·${question.subType}）${provinceNote}
 【题目】${question.title}
 【作答要求】${question.requirement}
-【给定资料摘要】${question.material.slice(0, 3000)}
-【预置参考答案/范文（软件生成，非官方答案，仅供思路参考，不得照搬）】${question.referenceAnswer.slice(0, 3000)}
-【题目评分要求（软件整理，仅作参考，最终以官方阅卷标准为准）】${question.scoringRules}${bandInfo}${pointsInfo}${dimensionsInfo}
+【给定资料】${question.material.slice(0, 12000)}
 
-${gradingStandard(question, province)}
-${
-  isEssay
-    ? `\n【范文硬性要求】modelAnswer 必须是完整成篇的高分范文，正文字数须达到【作答要求】规定的字数下限、且不超过上限（例如要求“1000—1200 字”，则正文控制在 1000—1200 字）；不得用提纲、要点罗列、缩写或“（略）”代替；参考上方的立意与结构，用自己的语言充分展开论证。`
-    : ''
-}
-
-【本题答题骨架范式（供参考，可结合题目微调）】
-${SKELETON_PATTERN[question.type]}
-（skeleton 只写“层级标题 + 该层写什么”，如 {"part":"一、基本情况","how":"改革背景 + 总体成效，一句话概括"}。
-严禁照抄范文，严禁出现材料中的具体事项、数据、专有名词，只保留可复用的结构与写法。）
-
-【参考信息（仅供你参考，不作为给分依据，最终得分由你按官方阅卷标准独立确定）】
-- 本卷满分：${scoreResult.totalScore} 分
-- 实际字数：${scoreResult.wordCount} 字（要求 ${question.wordLimit} 字以内）${scoreResult.overWordLimit ? '，已超字数' : ''}
+【本题满分】${scoreResult.totalScore} 分
+【字数】实际 ${scoreResult.wordCount} 字（要求 ${question.wordLimit} 字以内）${scoreResult.overWordLimit ? '，已超字数' : ''}
 
 【考生作答】
 ${answer.slice(0, 6000)}
 
 ${
   isEssay
-    ? ''
-    : '逐点给分尺度：要点完整且表述准确给该点满分；要点不全、表述不准或只是“沾边”给部分分；未涉及该要点给 0 分。' +
-      '尤其注意：即使要点已命中，只要存在术语/固定表述错误、拔高或添加材料以外的内容、层次归类混乱、错别字，' +
-      '也必须在该要点内扣分，不得给满分。\n' +
-      '总分为你独立判定的 score；points 只用于展示得分明细（编号、名称、分值由你自主确定）。' +
-      '如果你认为本题不适合拆成采分点，points 返回空数组 []，但 score 必须给出。\n'
-}
-请严格按以下 JSON 格式输出（不要输出多余文字）：
+    ? '【范文要求】modelAnswer 必须是完整成篇的高分范文，正文控制在作答要求规定的字数区间内；不得用提纲、要点罗列、缩写或“（略）”代替。\n'
+    : ''
+}请严格按以下 JSON 格式输出（不要输出多余文字）：
 ${outputSchema}`
 
   const raw = await chat(
