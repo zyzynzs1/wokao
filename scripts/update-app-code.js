@@ -71,7 +71,25 @@ async function main() {
   }
   fs.rmSync(tmpAsar, { force: true })
   fs.rmSync(path.join(resources, 'app'), { recursive: true, force: true })
-  console.log('[update-app-code] 已更新 resources/app.asar；wokao.exe 未改动，双击即可启动。')
+
+  // 实际运行的是 C:\wokao-app（ASCII 路径）；有安装副本时同步更新它
+  const installedAsar = 'C:\\wokao-app\\resources\\app.asar'
+  if (fs.existsSync(installedAsar)) {
+    try {
+      const fd2 = fs.openSync(installedAsar, 'r+')
+      try {
+        fs.writeSync(fd2, data, 0, data.length, 0)
+        fs.ftruncateSync(fd2, data.length)
+      } finally {
+        fs.closeSync(fd2)
+      }
+      console.log('[update-app-code] 已同步更新 C:\\wokao-app\\resources\\app.asar')
+    } catch (err) {
+      console.warn('[update-app-code] 安装副本更新失败（可能正在运行）：', err.message)
+    }
+  }
+
+  console.log('[update-app-code] 已更新 resources/app.asar；wokao.exe 未改动，双击桌面「公考」快捷方式启动。')
 }
 
 main().catch((err) => {

@@ -21,6 +21,13 @@ startupLog(`main module loaded, pid=${process.pid}, electron=${process.versions.
 process.on('uncaughtException', (err) => startupLog(`uncaughtException: ${err?.stack ?? err}`))
 process.on('unhandledRejection', (err) => startupLog(`unhandledRejection: ${String(err)}`))
 
+// 固定数据目录：即使宿主 Electron 运行时来自其他应用，也始终读写原来的 wokao 数据
+try {
+  app.setPath('userData', join(process.env.APPDATA ?? app.getPath('appData'), 'wokao'))
+} catch {
+  // 保持 Electron 默认路径
+}
+
 let mainWindow: BrowserWindow | null = null
 
 // 老板键：隐藏/显示窗口，连同任务栏图标一起隐藏
