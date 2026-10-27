@@ -17,6 +17,8 @@
     "grade:dry": "node scripts/run-grading-cli.js dry",
     "grade:migrate": "node scripts/run-grading-cli.js migrate",
     "samples:disputed": "node scripts/run-export-disputed-samples.js",
+    "audit:exam": "node scripts/run-audit-exam-data.js",
+    "fix:exam": "node scripts/run-fix-exam-data.js",
     "dist": "npm run gen:icon && electron-vite build && electron-builder --publish never && node scripts/copy-to-root.js"
   },
   "devDependencies": {
