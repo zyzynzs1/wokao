@@ -41,3 +41,8 @@ android/local.properties
 .DS_Store
 Thumbs.db
 *.log
+
+# 本地重打包/签名备份（含旧 exe 与证书，不入库）
+backup-smartscreen-*/
+*.cer
+*.pfx

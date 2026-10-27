@@ -1,37 +1,29 @@
 /**
- * 本地更新模式：只更新 resources/app，不替换 wokao.exe。
+ * 本地更新模式：只更新 resources/app.asar，不替换 wokao.exe。
  *
- * 背景：根目录的 wokao.exe 是从旧构建恢复的、本机 SmartScreen 已经允许过的版本；
- * 因为 Electron 的 asar 完整性校验和 OnlyLoadAppFromAsar 都是关闭的，
- * 所以最新代码可以放在 resources/app 目录里，由旧 exe 直接加载。
+ * 背景：根目录的 wokao.exe 已经用本机证书签名并信任，
+ * 不再重新打包 exe；以后只替换 app.asar，避免 SmartScreen 再次拦截。
  *
  * 用法：npm run update
  * 注意：更新前请先退出正在运行的 wokao。
  */
 const fs = require('fs')
 const path = require('path')
+const asar = require('@electron/asar')
 
 const root = path.join(__dirname, '..')
 const src = path.join(root, 'out')
 const resources = path.join(root, 'resources')
-const appDir = path.join(resources, 'app')
-const dest = path.join(appDir, 'out')
+const target = path.join(resources, 'app.asar')
+const stage = path.join(resources, '.app-stage')
 
 if (!fs.existsSync(src)) {
   console.error('[update-app-code] 未找到 out，请先执行 electron-vite build。')
   process.exit(1)
 }
 
-const asar = path.join(resources, 'app.asar')
-if (fs.existsSync(asar)) {
-  // app.asar 的优先级高于 app 目录；本地更新模式下必须移除它
-  console.error('[update-app-code] 检测到 resources/app.asar（完整打包产物）。')
-  console.error('[update-app-code] 本地更新模式下请删除/重命名它，否则会加载旧的 app.asar。')
-  process.exit(1)
-}
-
-fs.mkdirSync(appDir, { recursive: true })
-fs.rmSync(dest, { recursive: true, force: true })
+fs.rmSync(stage, { recursive: true, force: true })
+fs.mkdirSync(stage, { recursive: true })
 
 function copyDir(from, to) {
   fs.mkdirSync(to, { recursive: true })
@@ -43,17 +35,36 @@ function copyDir(from, to) {
   }
 }
 
-copyDir(src, dest)
+copyDir(src, path.join(stage, 'out'))
+fs.writeFileSync(
+  path.join(stage, 'package.json'),
+  JSON.stringify(
+    {
+      name: 'wokao',
+      version: '0.1.0',
+      description: 'wokao · 国考与省考申论学习练习桌面应用',
+      main: 'out/main/index.js',
+      author: 'wokao',
+      license: 'MIT'
+    },
+    null,
+    2
+  ),
+  'utf-8'
+)
 
-const pkgPath = path.join(appDir, 'package.json')
-const pkg = {
-  name: 'wokao',
-  version: '0.1.0',
-  description: 'wokao · 国考与省考申论学习练习桌面应用',
-  main: 'out/main/index.js',
-  author: 'wokao',
-  license: 'MIT'
+async function main() {
+  const old = target + '.bak'
+  fs.rmSync(old, { force: true })
+  if (fs.existsSync(target)) fs.renameSync(target, old)
+  await asar.createPackage(stage, target)
+  fs.rmSync(stage, { recursive: true, force: true })
+  // app 目录的优先级低于 app.asar，避免旧目录被误加载
+  fs.rmSync(path.join(resources, 'app'), { recursive: true, force: true })
+  console.log('[update-app-code] 已更新 resources/app.asar；wokao.exe 未改动，双击即可启动。')
 }
-fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2), 'utf-8')
 
-console.log('[update-app-code] 已更新 resources/app/out；wokao.exe 未改动，双击即可启动。')
+main().catch((err) => {
+  console.error('[update-app-code] 更新失败：', err)
+  process.exit(1)
+})

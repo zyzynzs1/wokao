@@ -1,9 +1,25 @@
 import { app, BrowserWindow, globalShortcut, shell } from 'electron'
+import { appendFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { initStore } from './store'
 import { registerIpc } from './ipc'
 import { autoStartLanSync, stopLanSync } from './lanSync'
 import { autoStartProgressSync, stopProgressSync } from './progressSync'
+
+// 启动日志：用于排查“双击 exe 没有窗口”这类问题（只记录启动阶段，不涉及作答内容）
+function startupLog(message: string): void {
+  try {
+    const dir = join(process.env.APPDATA ?? '', 'wokao')
+    mkdirSync(dir, { recursive: true })
+    appendFileSync(join(dir, 'startup.log'), `[${new Date().toISOString()}] ${message}\n`)
+  } catch {
+    // 日志失败不影响启动
+  }
+}
+
+startupLog(`main module loaded, pid=${process.pid}, electron=${process.versions.electron}`)
+process.on('uncaughtException', (err) => startupLog(`uncaughtException: ${err?.stack ?? err}`))
+process.on('unhandledRejection', (err) => startupLog(`unhandledRejection: ${String(err)}`))
 
 let mainWindow: BrowserWindow | null = null
 
@@ -46,7 +62,14 @@ function createWindow(): void {
     if (mainWindow === win) mainWindow = null
   })
 
-  win.on('ready-to-show', () => win.show())
+  win.on('ready-to-show', () => {
+    startupLog('main window ready-to-show')
+    win.show()
+  })
+  win.webContents.on('did-finish-load', () => startupLog('renderer did-finish-load'))
+  win.webContents.on('render-process-gone', (_e, details) =>
+    startupLog(`render-process-gone: ${details.reason} exitCode=${details.exitCode}`)
+  )
 
   // 最小化/还原时通知渲染进程，用于冻结作答计时
   win.on('minimize', () => win.webContents.send('window:minimized'))
