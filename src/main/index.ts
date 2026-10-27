@@ -67,9 +67,20 @@ function createWindow(): void {
     win.show()
   })
   win.webContents.on('did-finish-load', () => startupLog('renderer did-finish-load'))
+  win.webContents.on('did-fail-load', (_e, code, desc, url) =>
+    startupLog(`renderer did-fail-load: ${code} ${desc} ${url}`)
+  )
   win.webContents.on('render-process-gone', (_e, details) =>
     startupLog(`render-process-gone: ${details.reason} exitCode=${details.exitCode}`)
   )
+
+  // 兜底：即使渲染进程初始化异常，也把窗口显示出来（空白窗口也比“双击没反应”好排查）
+  setTimeout(() => {
+    if (!win.isDestroyed() && !win.isVisible()) {
+      startupLog('fallback show window after timeout')
+      win.show()
+    }
+  }, 4000)
 
   // 最小化/还原时通知渲染进程，用于冻结作答计时
   win.on('minimize', () => win.webContents.send('window:minimized'))
@@ -90,9 +101,11 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  startupLog('app ready')
   initStore()
   registerIpc()
   createWindow()
+  startupLog('createWindow called')
 
   // 局域网同步服务：上次若为开启状态则自动恢复
   autoStartLanSync()
@@ -111,6 +124,8 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+}).catch((err) => {
+  startupLog(`whenReady failed: ${err?.stack ?? err}`)
 })
 
 app.on('will-quit', () => {
