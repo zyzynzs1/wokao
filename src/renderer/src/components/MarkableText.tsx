@@ -253,7 +253,15 @@ export default function MarkableText({
   const saveNote = (): void => {
     if (!editor) return
     const note = editor.note.trim()
-    if (!note) return
+    if (!note) {
+      // 内容被清空后保存，视为取消这条笔记
+      const target = fieldMarks.find((m) => m.start === editor.start && m.end === editor.end)
+      if (target?.note) onRemove?.(editor.start, editor.end)
+      setEditor(null)
+      setPending(null)
+      window.getSelection()?.removeAllRanges()
+      return
+    }
     onNote?.(editor.start, editor.end, note)
     setEditor(null)
     setPending(null)
@@ -385,7 +393,7 @@ export default function MarkableText({
         const below = a.top < 150
         const style: CSSProperties = {
           left: Math.max(8, Math.min(a.left, window.innerWidth - 272)),
-          top: below ? a.bottom + 8 : Math.max(8, a.top - 34)
+          top: below ? a.bottom + 8 : Math.max(8, a.top - 42)
         }
         return createPortal(
           <div
@@ -478,11 +486,13 @@ export default function MarkableText({
               }}
             />
             <div className="mark-editor-actions">
-              <span className="mark-editor-tip">Ctrl + Enter 保存</span>
+              <span className="mark-editor-tip">
+                {editor.existing ? '清空内容后保存即删除笔记 · Ctrl + Enter' : 'Ctrl + Enter 保存'}
+              </span>
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
-                disabled={!editor.note.trim()}
+                disabled={!editor.note.trim() && !editor.existing}
                 onClick={saveNote}
               >
                 保存

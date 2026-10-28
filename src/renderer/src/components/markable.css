@@ -47,15 +47,15 @@
   max-width: calc(100vw - 16px);
   padding: 6px 10px;
   border-radius: 10px;
-  background: rgba(255, 250, 224, 0.55);
-  border: 1px solid rgba(190, 160, 60, 0.28);
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+  background: rgba(255, 250, 224, 0.38);
+  border: 1px solid rgba(190, 160, 60, 0.2);
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.06);
   color: #4a4223;
   font-size: 12px;
   line-height: 1.6;
-  backdrop-filter: blur(3px);
+  backdrop-filter: blur(1.5px);
   cursor: pointer;
-  opacity: 0.78;
+  opacity: 0.58;
   transition: opacity 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
 }
 
