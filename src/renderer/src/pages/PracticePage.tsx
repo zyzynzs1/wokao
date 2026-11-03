@@ -184,13 +184,15 @@ export default function PracticePage(): JSX.Element {
   const [randomExamType, setRandomExamType] = useState<ExamType>('国考')
   const [randomDifficulty, setRandomDifficulty] = useState('all')
   const [paperDifficulty, setPaperDifficulty] = useState('all')
-  // 知识点练习：支持选择国考 / 省考与难度
+  // 知识点练习：支持选择国考 / 省考、子类别（副省级/地市级/行政执法类等）与难度
   const [knowExamType, setKnowExamType] = useState<ExamType>('国考')
+  const [knowSubType, setKnowSubType] = useState<SubType>('副省级')
   const [knowDifficulty, setKnowDifficulty] = useState('all')
   // 话题筛选（三级路径），默认为空表示不限；练习时话题非必选
   const [randomTopic, setRandomTopic] = useState('')
   const [paperTopic, setPaperTopic] = useState('')
   const [knowTopic, setKnowTopic] = useState('')
+  const knowSubTypes = EXAM_CONFIGS.find((c) => c.examType === knowExamType)?.subTypes ?? []
   const [generating, setGenerating] = useState(false)
   // 抽取单题时，题库不足会由 AI 自动命题，耗时较长，用该状态给出反馈
   const [picking, setPicking] = useState(false)
@@ -258,6 +260,7 @@ export default function PracticePage(): JSX.Element {
     const q = await window.api.randomQuestion(
       undefined,
       randomExamType,
+      undefined,
       randomExamType === '省考' ? province : undefined,
       difficulty,
       user?.id,
@@ -276,6 +279,7 @@ export default function PracticePage(): JSX.Element {
     const q = await window.api.randomQuestion(
       type,
       knowExamType,
+      knowSubType,
       knowExamType === '省考' ? province : undefined,
       knowDifficulty,
       user?.id,
@@ -691,16 +695,32 @@ export default function PracticePage(): JSX.Element {
         <div className="card practice-card practice-card-wide">
           <div className="practice-icon">🎯</div>
           <h2>知识点练习</h2>
-          <p className="practice-desc">按申论五大题型进行专项练习，可指定国考 / 省考与难度。</p>
+          <p className="practice-desc">
+            按申论五大题型进行专项练习，可指定国考类别（副省级 / 地市级 / 行政执法类）、省考级别与难度。
+          </p>
           <div className="practice-controls">
             <div className="seg-group">
               {EXAM_CONFIGS.map((c) => (
                 <button
                   key={c.examType}
                   className={`seg${knowExamType === c.examType ? ' active' : ''}`}
-                  onClick={() => setKnowExamType(c.examType)}
+                  onClick={() => {
+                    setKnowExamType(c.examType)
+                    setKnowSubType(c.subTypes[0])
+                  }}
                 >
                   {c.examType}
+                </button>
+              ))}
+            </div>
+            <div className="seg-group">
+              {knowSubTypes.map((s) => (
+                <button
+                  key={s}
+                  className={`seg${knowSubType === s ? ' active' : ''}`}
+                  onClick={() => setKnowSubType(s)}
+                >
+                  {s}
                 </button>
               ))}
             </div>

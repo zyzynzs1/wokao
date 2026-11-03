@@ -238,12 +238,13 @@ function bandTarget(difficultyId?: string): number {
 function inferSpec(
   type?: QuestionType,
   examType?: ExamType,
+  subType?: SubType,
   province?: string,
   difficultyId?: string,
   topic?: string
 ): QuestionSpec {
   const et: ExamType = examType ?? pickRandom(['国考', '省考'] as ExamType[]) ?? '国考'
-  const st = pickRandom(SUB_TYPES[et]) ?? SUB_TYPES[et][0]
+  const st = subType ?? pickRandom(SUB_TYPES[et]) ?? SUB_TYPES[et][0]
   return {
     examType: et,
     subType: st,
@@ -419,6 +420,7 @@ export const mobileApi: Api = {
   randomQuestion: async (
     type?: QuestionType,
     examType?: ExamType,
+    subType?: SubType,
     province?: string,
     difficultyId?: string,
     userId?: string,
@@ -428,6 +430,7 @@ export const mobileApi: Api = {
     let pool = allQuestions()
     if (type) pool = pool.filter((q) => q.type === type)
     if (examType) pool = pool.filter((q) => q.examType === examType)
+    if (subType) pool = pool.filter((q) => q.subType === subType)
     if (examType === '省考' && province) {
       const byProvince = pool.filter((q) => q.province === province)
       const generic = pool.filter((q) => !q.province || q.province === '通用')
@@ -443,7 +446,9 @@ export const mobileApi: Api = {
     const picked = pickRandom(fresh)
     if (picked) return picked
     // 未作答题目已用尽 → 由 AI 按「考试类型 + 知识点 + 话题 + 难度 + 给分点」自动命题
-    const generated = await generateAndStore(inferSpec(type, examType, province, difficultyId, topic))
+    const generated = await generateAndStore(
+      inferSpec(type, examType, subType, province, difficultyId, topic)
+    )
     if (generated) return generated
     // 未配置 Key / 生成失败 → 退回全部候选（允许重复），保证仍能出题
     return pickRandom(pool) ?? null

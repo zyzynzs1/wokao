@@ -67,6 +67,7 @@ export interface Api {
   randomQuestion: (
     type?: QuestionType,
     examType?: ExamType,
+    subType?: SubType,
     province?: string,
     difficultyId?: string,
     userId?: string,
