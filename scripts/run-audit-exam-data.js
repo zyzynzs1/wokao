@@ -1,10 +1,14 @@
-// 用 esbuild 打包并运行 scripts/audit-exam-data.ts
+// Bundle and run scripts/audit-exam-data.ts.
+// Output goes to the project's .tmp directory because the system TEMP directory
+// can be protected by security software on some machines.
+const fs = require('fs')
 const path = require('path')
-const os = require('os')
 const esbuild = require('esbuild')
 
 const root = path.join(__dirname, '..')
-const outfile = path.join(os.tmpdir(), 'wokao-audit-exam-data.cjs')
+const outDir = path.join(root, '.tmp')
+fs.mkdirSync(outDir, { recursive: true })
+const outfile = path.join(outDir, 'wokao-audit-exam-data.cjs')
 
 esbuild.buildSync({
   entryPoints: [path.join(root, 'scripts/audit-exam-data.ts')],

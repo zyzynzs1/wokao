@@ -1,7 +1,8 @@
 // 真题数据体检：重点检查
 //  1) 套卷与题目关联、题型是否与题干匹配；
-//  2) 大作文材料是否错误地拼接了前面题的材料（题干明确引用某则材料时）；
-//  3) 材料过短、跨卷材料重复等异常。
+//  2) 大作文是否能看到全卷材料（申论给定资料不是与题目一一对应的）；
+//  3) 应用文是否保留题干引用的材料；
+//  4) 材料过短、跨卷材料重复等异常。
 // 用法：node scripts/run-audit-exam-data.js
 import type { Paper, Question } from '../src/shared/types'
 import { seedQuestions } from '../src/main/data/questions'
@@ -56,13 +57,28 @@ for (const paper of papers) {
     const contained = qs.filter((b) => b.id !== a.id && norm(b.material).length >= 400 && ma.includes(norm(b.material)))
     if (contained.length === 0) continue
     if (a.type === '文章论述') {
+      // 申论给定资料不是与题目一一对应的，大作文通常要求“参考给定资料”，
+      // 使用全卷材料是正确设计；包含其他题目的材料不应再报错。
       const referencedIds = refs.map((n) => nonEssay[n - 1]?.id).filter(Boolean)
-      const unreferenced = contained.filter((b) => !referencedIds.includes(b.id))
-      if (refs.length > 0 && unreferenced.length > 0) {
-        flags.push({ level: 'error', paperTitle: paper.title, message: `${a.id} 材料仍包含未引用题目的材料：${unreferenced.map((b) => b.id).join(', ')}` })
-      } else if (refs.length === 0) {
-        flags.push({ level: 'info', paperTitle: paper.title, message: `${a.id} 题干未指定具体材料，材料为全卷资料（合理设计）` })
+      flags.push({
+        level: 'info',
+        paperTitle: paper.title,
+        message: `${a.id} 大作文使用全卷材料（含 ${contained.map((b) => b.id).join(', ')}）${refs.length > 0 ? `；题干引用了资料${refs.join('、')}` : ''}`
+      })
+      // 如果题干要求参考全部给定资料，但大作文材料没有覆盖其他题目的材料，提示可能缺材料
+      if (a.material.replace(/\s/g, '').length > 1000) {
+        const missing = nonEssay.filter(
+          (b) => norm(b.material).length >= 400 && !ma.includes(norm(b.material))
+        )
+        if (missing.length > 0) {
+          flags.push({
+            level: 'warn',
+            paperTitle: paper.title,
+            message: `${a.id} 大作文材料可能缺少其他题目材料：${missing.map((b) => b.id).join(', ')}`
+          })
+        }
       }
+      void referencedIds
     } else {
       flags.push({ level: 'info', paperTitle: paper.title, message: `${a.id} 材料包含其他题材料（可能是多材料题/子题，属正常）：${contained.map((b) => b.id).join(', ')}` })
     }
