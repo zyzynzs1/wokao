@@ -5,6 +5,7 @@ import type { AnswerLayout, HighlightMark, PracticeSession, Question } from '../
 import { difficultyLabel } from '../../../shared/difficulty'
 import LinedPaper from '../components/LinedPaper'
 import MarkableText, { MARK_COLORS } from '../components/MarkableText'
+import MaterialPanel from '../components/MaterialPanel'
 import './answer.css'
 
 interface AnswerState {
@@ -447,22 +448,17 @@ export default function AnswerPage(): JSX.Element {
         </div>
 
         {question.material && (
-          <div className="answer-material">
-            <div className="answer-material-label">给定资料</div>
-            <div className="answer-material-body">
-              <MarkableText
-                text={question.material}
-                field="material"
-                marks={currentMarks}
-                editable={canMark}
-                color={markColor}
-                onMark={(s, e, c) => addColorMark('material', s, e, c)}
-                onUnmark={(s, e) => clearColorMark('material', s, e)}
-                onNote={(s, e, n) => addMark('material', s, e, n)}
-                onRemove={(s, e) => removeMark('material', s, e)}
-              />
-            </div>
-          </div>
+          <MaterialPanel
+            question={question}
+            allQuestions={questions}
+            marks={currentMarks}
+            editable={canMark}
+            color={markColor}
+            onMark={addColorMark}
+            onUnmark={clearColorMark}
+            onNote={addMark}
+            onRemove={removeMark}
+          />
         )}
       </div>
 

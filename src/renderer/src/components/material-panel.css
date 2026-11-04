@@ -1,0 +1,51 @@
+/* 给定资料：全卷材料 + 分则 tabs */
+.answer-material-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.answer-material-head .answer-material-label {
+  margin-bottom: 0;
+}
+.answer-material-tabs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.answer-material-tab {
+  padding: 3px 10px;
+  border: 1px solid #e2e6ea;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.answer-material-tab:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.answer-material-tab.active {
+  border-color: var(--primary);
+  background: var(--primary-light);
+  color: var(--primary);
+  font-weight: 600;
+}
+.answer-material-section + .answer-material-section {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed #dfe3e8;
+}
+.answer-material-section-title {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
