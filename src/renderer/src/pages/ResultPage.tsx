@@ -87,6 +87,9 @@ export default function ResultPage(): JSX.Element {
   const module = grading?.mode === 'essay' || isEssay ? '文章论述' : question?.type
   const pointScoreById = new Map(scoreResult.pointResults.map((p) => [p.pointId, p]))
   const coverage = grading?.pointCoverage ?? []
+  const skim = grading?.skim
+  const skimRiskClass =
+    skim?.risk === '高' ? 'high' : skim?.risk === '中' ? 'medium' : 'low'
 
   return (
     <div className="result-page">
@@ -161,6 +164,44 @@ export default function ResultPage(): JSX.Element {
           {scoreResult.overWordLimit && <div className="result-over">已超出字数限制</div>}
         </div>
       </div>
+
+      {skim && (
+        <div className="card result-skim-card">
+          <h3 className="result-section-title">
+            ⏱ 实战阅卷预估
+            <span className="result-skim-sub">模拟 10–15 秒快速阅卷，不参与主分</span>
+          </h3>
+          <div className="result-skim-main">
+            <div className="result-skim-score">
+              {fmtScore(skim.score)}
+              <span> / {skim.totalScore} 分</span>
+            </div>
+            <span className={`tag result-skim-risk ${skimRiskClass}`}>漏点风险{skim.risk}</span>
+            <span className="result-skim-meta">
+              预估区间 {skim.range[0]}–{skim.range[1]} 分
+            </span>
+            <span className="result-skim-meta">
+              {grading.center - skim.score > 0.05
+                ? `比完整评分低 ${fmtScore(grading.center - skim.score)} 分`
+                : '与完整评分接近'}
+            </span>
+          </div>
+          <p className="result-skim-summary">{skim.summary}</p>
+          {skim.essayTier && (
+            <p className="result-skim-meta">快速阅卷第一印象档位：{skim.essayTier}</p>
+          )}
+          {skim.missed.length > 0 && (
+            <ul className="result-losses result-skim-missed">
+              {skim.missed.map((m, i) => (
+                <li key={i} className="result-loss">
+                  <div className="result-loss-title">快速阅卷容易漏：{m.label}</div>
+                  <div className="result-loss-reason">{m.reason}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {grading && (
         <div className="card">
@@ -243,6 +284,7 @@ export default function ResultPage(): JSX.Element {
             </div>
             {coverage.map((c) => {
               const p = pointScoreById.get(c.pointId)
+              const skimPoint = skim?.points?.find((x) => x.pointId === c.pointId)
               return (
                 <div key={c.pointId} className="result-point-row">
                   <div className="result-point-label">
@@ -258,6 +300,14 @@ export default function ResultPage(): JSX.Element {
                   </div>
                   <div>
                     <span className={coverageClass(c.status)}>{COVERAGE_LABEL[c.status]}</span>
+                    {skimPoint &&
+                      c.status !== 'none' &&
+                      c.status !== 'out_of_material' &&
+                      skimPoint.visibility !== 'clear' && (
+                        <span className={`result-skim-point ${skimPoint.visibility}`}>
+                          {skimPoint.visibility === 'partial' ? '部分可见' : '易漏'}
+                        </span>
+                      )}
                   </div>
                   <div className="result-point-score">
                     {p ? `${fmtScore(p.got)}/${fmtScore(p.score)}` : '—'}

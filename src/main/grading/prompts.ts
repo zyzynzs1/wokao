@@ -334,3 +334,84 @@ ${answer}`
     { role: 'user', content: user }
   ]
 }
+
+// ---- 快速阅卷模拟：小题逐点可发现性 ----
+export function buildSkimPointMessages(
+  question: Question,
+  pool: PointPool,
+  answer: string,
+  application = false
+): ChatMsg[] {
+  const system = `你是有多年申论阅卷经验的现场老师。现在你只给这道题 10–15 秒：不逐字细读，只快速扫标题、每段首句、序号、小标题、加粗/独立成行的关键词和明显结构。${application ? '这是应用文，阅卷时同样只看板块是否显眼。' : ''}
+
+你的任务不是重新判断内容覆盖，而是判断：**假设考生确实答到了这个要点，在快速阅卷中是否容易被看到。**
+- clear：扫一眼就能看到完整要点，通常因为分条、首句亮明、关键词前置、独立成行；
+- partial：能看到部分/需要停顿扫读才能确认；
+- missed：内容可能写了，但埋在长段落中部、没有序号/标题/关键词突出，10 秒内基本扫不到。
+
+规则：
+1. 不要因为答案内容正确就判 clear，必须考虑阅卷现场的可发现性；
+2. 必须结合具体位置和呈现方式说明（第几段、是否分条、关键词是否前置、段落是否过长、是否被套话淹没）；
+3. userQuote 只填“快速扫读时眼睛真正会停留到的考生原句/短语”，没有就留空；
+4. 不得改动内容覆盖结论，也不得凭空认为考生答到了未写的内容。
+
+${JSON_ONLY}
+输出格式：
+{
+  "summary": "整体可发现性一句话总结",
+  "points": [
+    { "id": "p1", "visibility": "clear|partial|missed", "reason": "位置/格式原因", "userQuote": "快速扫读时看到的原句（可空）" }
+  ]
+}`
+
+  const user = `## 题干
+${question.title}
+
+## 作答要求
+${question.requirement}
+
+## 要点表（共 ${pool.points.length} 个）
+${pointLines(pool.points)}
+
+## 考生作答
+${answer}`
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user }
+  ]
+}
+
+// ---- 快速阅卷模拟：大作文第一印象 ----
+export function buildSkimEssayMessages(question: Question, answer: string): ChatMsg[] {
+  const system = `你是申论阅卷现场老师，只给这篇大作文 10–15 秒。你只看标题、开头前两句、各段首句/分论点、结尾和整体结构，不逐字读完全文。
+
+请给出“快速阅卷第一印象”的实战估计，不重新做完整评分，也不要计算总分：
+- skimRatio：0–1 之间，表示在 10–15 秒快速阅卷下，这篇作文大概能拿到的得分率；必须明显考虑标题、开头、分论点是否一眼可见，论点/关键词埋在长段落里会降低；
+- skimTier：一类文/二类文/三类文/四类文；
+- summary：一句话说明快速阅卷的第一印象；
+- missed：数组，列出“内容可能有，但快速扫读容易忽略”的点，写明原因。
+
+必须保守：如果必须逐字读才能发现论点，按较低得分率估计；不要因为完整读完后觉得不错就给高分。
+
+${JSON_ONLY}
+输出格式：
+{
+  "skimRatio": 0.72,
+  "skimTier": "二类文",
+  "summary": "标题点题，分论点集中在段首，第一印象清楚",
+  "missed": [ { "label": "某个分论点的材料例证", "reason": "埋在第二段中部，段首没有提示" } ]
+}`
+
+  const user = `## 题干
+${question.title}
+
+## 作答要求
+${question.requirement}
+
+## 考生作文
+${answer}`
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user }
+  ]
+}

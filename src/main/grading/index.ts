@@ -17,6 +17,14 @@ import { judgeEssay } from './essay'
 import { judgeCoverage } from './judge'
 import { buildPointPool, estimateReferenceQuality } from './points'
 import { checkApplicationFormat, checkEssayHardRules, checkFormDeductions, countChars } from './rules'
+import {
+  buildEssaySkimResult,
+  buildPointSkimResult,
+  judgeSkimEssay,
+  judgeSkimPoints,
+  type SkimEssayJudgment,
+  type SkimPointJudgment
+} from './skim'
 import { roundHalfUp } from './validators'
 
 export class GradingUnavailableError extends Error {
@@ -102,7 +110,10 @@ function buildLossesAndSuggestions(
 function buildFeedback(question: Question, built: BuiltGrade): string {
   const g = built.grade
   const range = `${g.range[0]}–${g.range[1]}`
-  const head = `【${g.tier}】建议分 ${g.center}/${question.score} 分，区间 ${range} 分，置信度 ${g.confidence}（${g.confidenceReason}）。`
+  const skimLine = g.skim
+    ? `\n实战阅卷预估 ${g.skim.score}/${g.skim.totalScore} 分（区间 ${g.skim.range[0]}–${g.skim.range[1]}，漏点风险${g.skim.risk}）：${g.skim.summary}`
+    : ''
+  const head = `【${g.tier}】建议分 ${g.center}/${question.score} 分，区间 ${range} 分，置信度 ${g.confidence}（${g.confidenceReason}）。${skimLine}`
   if (g.mode === 'essay' && g.essay) {
     return `${head}\n${g.essay.tierReason}${g.aiQuestion ? '\n（本题为 AI 自命题，评分仅作训练参考。）' : ''}`
   }
@@ -130,7 +141,12 @@ export async function gradeQuestion(input: GradeQuestionInput): Promise<GradeQue
 
   if (question.type === '文章论述') {
     const constraints = analyzeConstraints(question)
-    const judged = await judgeEssay(question, answer, llm)
+    const [judged, skimSettled] = await Promise.all([
+      judgeEssay(question, answer, llm),
+      judgeSkimEssay(question, answer, llm)
+        .then((value) => ({ ok: true as const, value }))
+        .catch((err) => ({ ok: false as const, error: err as Error }))
+    ])
     const hard = checkEssayHardRules(question, answer, constraints)
     const built = buildEssayGrade({
       question,
@@ -142,6 +158,18 @@ export async function gradeQuestion(input: GradeQuestionInput): Promise<GradeQue
       aiQuestion,
       referenceQuality: estimateReferenceQuality(question)
     })
+    if (skimSettled.ok) {
+      const skimJudgment: SkimEssayJudgment = skimSettled.value
+      built.grade.skim = buildEssaySkimResult({
+        question,
+        main: built.grade,
+        judgment: skimJudgment,
+        model: llm.model
+      })
+      built.grade.warnings.push(...skimJudgment.warnings)
+    } else {
+      built.grade.warnings.push(`实战阅卷模拟未完成：${skimSettled.error.message}`)
+    }
     const { losses, suggestions } = buildLossesAndSuggestions(question, built, null)
     return {
       grade: built.grade,
@@ -165,9 +193,14 @@ export async function gradeQuestion(input: GradeQuestionInput): Promise<GradeQue
     poolWarnings.push(...built.warnings)
   }
 
-  const judged = await judgeCoverage(question, answer, pool, settings, llm)
-  const formDeductions = checkFormDeductions(question, answer, pool.constraints)
   const isApplication = question.type === '应用文写作'
+  const [judged, skimSettled] = await Promise.all([
+    judgeCoverage(question, answer, pool, settings, llm),
+    judgeSkimPoints(question, pool, answer, llm, isApplication)
+      .then((value) => ({ ok: true as const, value }))
+      .catch((err) => ({ ok: false as const, error: err as Error }))
+  ])
+  const formDeductions = checkFormDeductions(question, answer, pool.constraints)
   if (isApplication) {
     formDeductions.push(...checkApplicationFormat(answer, pool.constraints, question.score))
   }
@@ -184,6 +217,22 @@ export async function gradeQuestion(input: GradeQuestionInput): Promise<GradeQue
     aiQuestion,
     mode: isApplication ? 'application' : 'points'
   })
+
+  if (skimSettled.ok) {
+    const skimJudgment: SkimPointJudgment = skimSettled.value
+    const formatPenalty = formDeductions.reduce((s, d) => s + (Number.isFinite(d.value) ? d.value : 0), 0)
+    built.grade.skim = buildPointSkimResult({
+      question,
+      pointScores: built.pointScores,
+      formatPenalty,
+      mainCenter: built.grade.center,
+      judgment: skimJudgment,
+      model: llm.model
+    })
+    built.grade.warnings.push(...skimJudgment.warnings)
+  } else {
+    built.grade.warnings.push(`实战阅卷模拟未完成：${skimSettled.error.message}`)
+  }
 
   const { losses, suggestions } = buildLossesAndSuggestions(question, built, pool)
   if (countChars(answer) === 0) {

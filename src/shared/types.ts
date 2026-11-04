@@ -517,6 +517,37 @@ export interface FormatDeduction {
   value: number
 }
 
+// 快速阅卷模拟：仅评估“10 秒内是否容易被看到”，不改变主评分
+export type SkimVisibility = 'clear' | 'partial' | 'missed'
+
+export interface SkimPointResult {
+  pointId: string
+  visibility: SkimVisibility
+  factor: number // clear=1 / partial=0.5 / missed=0
+  reason: string
+  userQuote?: string
+}
+
+export interface SkimMissedItem {
+  label: string
+  reason: string
+}
+
+export interface SkimResult {
+  version: string
+  mode: 'points' | 'essay'
+  score: number // 快速阅卷预估分
+  range: [number, number] // 预估值波动区间
+  totalScore: number
+  risk: '低' | '中' | '高'
+  summary: string
+  points?: SkimPointResult[] // 小题逐点可发现性
+  essayTier?: string // 大作文快速阅卷档位
+  missed: SkimMissedItem[]
+  warnings: string[]
+  model: string
+}
+
 // 新评分总结果
 export interface GradeResultV2 {
   version: string
@@ -527,6 +558,7 @@ export interface GradeResultV2 {
   confidence: '高' | '中' | '低'
   confidenceReason: string
   pointCoverage?: PointCoverage[]
+  skim?: SkimResult // 快速阅卷模拟（不参与主分）
   formatDeductions?: FormatDeduction[]
   dimensions?: { name: string; got: number; full: number; note: string }[]
   essay?: EssayReview
