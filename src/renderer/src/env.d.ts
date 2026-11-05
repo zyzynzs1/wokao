@@ -10,6 +10,13 @@ declare global {
       onBlurred: (cb: () => void) => () => void
       onFocused: (cb: () => void) => () => void
     }
+    disguiseEvents: {
+      onAutosave: (cb: (answers: Record<string, string>) => void) => () => void
+      onFinished: (cb: (answers: Record<string, string>) => void) => () => void
+      onAborted: (cb: () => void) => () => void
+      onRequestStart: (cb: () => void) => () => void
+      onError: (cb: (message: string) => void) => () => void
+    }
   }
 }
 

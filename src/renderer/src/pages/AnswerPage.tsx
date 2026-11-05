@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import type { AnswerLayout, HighlightMark, PracticeSession, Question } from '../../../shared/types'
+import type { DisguiseStartInput } from '../../../shared/api'
 import { difficultyLabel } from '../../../shared/difficulty'
 import LinedPaper from '../components/LinedPaper'
 import MarkableText, { MARK_COLORS } from '../components/MarkableText'
@@ -60,6 +61,8 @@ export default function AnswerPage(): JSX.Element {
   const [markColor, setMarkColor] = useState<string>(() => loadMarkColor())
   // 作答页布局（来自设置，默认上下布局）
   const [answerLayout, setAnswerLayout] = useState<AnswerLayout>('vertical')
+  const [disguiseActive, setDisguiseActive] = useState(false)
+  const disguiseActiveRef = useRef(false)
 
   const sessionIdRef = useRef<string>(state?.resume?.id ?? newId())
   const submittedRef = useRef(false)
@@ -96,8 +99,12 @@ export default function AnswerPage(): JSX.Element {
 
   // 窗口最小化/失焦时冻结
   useEffect(() => {
-    const offMin = window.windowEvents.onMinimized(() => setPaused(true))
-    const offBlur = window.windowEvents.onBlurred(() => setPaused(true))
+    const offMin = window.windowEvents.onMinimized(() => {
+      if (!disguiseActiveRef.current) setPaused(true)
+    })
+    const offBlur = window.windowEvents.onBlurred(() => {
+      if (!disguiseActiveRef.current) setPaused(true)
+    })
     return () => {
       offMin()
       offBlur()
@@ -243,22 +250,88 @@ export default function AnswerPage(): JSX.Element {
     return () => clearInterval(t)
   }, [persist])
 
+  const buildDisguiseInput = (): DisguiseStartInput => {
+    const material = questions.reduce(
+      (longest, q) =>
+        (q.material ?? '').replace(/\s/g, '').length > longest.replace(/\s/g, '').length
+          ? q.material
+          : longest,
+      ''
+    )
+    return {
+      material,
+      questions: questions.map((q) => ({
+        id: q.id,
+        title: q.title,
+        requirement: q.requirement,
+        wordLimit: q.wordLimit
+      })),
+      answers
+    }
+  }
+
+  const startDisguise = async (): Promise<void> => {
+    if (disguiseActiveRef.current || questions.length === 0) return
+    disguiseActiveRef.current = true
+    setDisguiseActive(true)
+    const res = await window.api.disguiseStart(buildDisguiseInput())
+    if (!res.ok) {
+      disguiseActiveRef.current = false
+      setDisguiseActive(false)
+      alert(res.error ?? '进入伪装模式失败')
+    }
+  }
+
+  useEffect(() => {
+    const offAuto = window.disguiseEvents.onAutosave((next) => setAnswers(next))
+    const offFinish = window.disguiseEvents.onFinished((next) => {
+      disguiseActiveRef.current = false
+      setDisguiseActive(false)
+      setPaused(false)
+      setAnswers(next)
+      void handleSubmit(next)
+    })
+    const offAbort = window.disguiseEvents.onAborted(() => {
+      disguiseActiveRef.current = false
+      setDisguiseActive(false)
+      setPaused(false)
+    })
+    const offRequest = window.disguiseEvents.onRequestStart(() => {
+      void startDisguise()
+    })
+    const offError = window.disguiseEvents.onError((message) => {
+      disguiseActiveRef.current = false
+      setDisguiseActive(false)
+      setPaused(false)
+      alert(message)
+    })
+    return () => {
+      offAuto()
+      offFinish()
+      offAbort()
+      offRequest()
+      offError()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [questions, answers])
+
   const handleBack = (): void => {
     persist()
     navigate('/practice')
   }
 
-  const handleSubmit = async (): Promise<void> => {
+  const handleSubmit = async (overrideAnswers?: Record<string, string>): Promise<void> => {
     if (!user) return
+    const finalAnswers = overrideAnswers ?? answers
     submittedRef.current = true
     if (isPaper) {
       const attemptId = `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       const payloads = questions
-        .filter((q) => (answers[q.id] ?? '').trim())
+        .filter((q) => (finalAnswers[q.id] ?? '').trim())
         .map((q) => ({
           userId: user.id,
           questionId: q.id,
-          answer: answers[q.id],
+          answer: finalAnswers[q.id],
           practiceType: state?.mode ?? '整卷练习',
           paperId: state?.paperId,
           attemptId,
@@ -281,7 +354,7 @@ export default function AnswerPage(): JSX.Element {
       })
     } else {
       const qid = questions[0]?.id
-      const answer = qid ? (answers[qid] ?? '') : ''
+      const answer = qid ? (finalAnswers[qid] ?? '') : ''
       if (!answer.trim()) {
         submittedRef.current = false
         alert('请先作答再提交')
@@ -339,6 +412,14 @@ export default function AnswerPage(): JSX.Element {
         ) : (
           <div className="answer-mode-tag">{state?.mode}</div>
         )}
+        <button
+          className="btn btn-outline btn-sm"
+          onClick={() => void startDisguise()}
+          disabled={disguiseActive}
+          title="在 WPS 中打开单文档伪装作答"
+        >
+          {disguiseActive ? '伪装中…' : '伪装作答'}
+        </button>
         <div className={`answer-timer${overtime > 0 ? ' overtime' : ''}`}>
           {overtime > 0
             ? `⏱ 超时 ${Math.floor(overtime / 60)}分${overtime % 60}秒`
@@ -494,7 +575,7 @@ export default function AnswerPage(): JSX.Element {
               下一题 →
             </button>
           ) : (
-            <button className="btn btn-primary" onClick={handleSubmit} disabled={submitting}>
+            <button className="btn btn-primary" onClick={() => void handleSubmit()} disabled={submitting}>
               {submitting ? '评分中…' : isPaper ? '交卷并评分' : '提交并评分'}
             </button>
           )}

@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { initStore } from './store'
 import { registerIpc } from './ipc'
+import { initDisguise, stopDisguiseOnQuit } from './disguise'
 import { autoStartLanSync, stopLanSync } from './lanSync'
 import { autoStartProgressSync, stopProgressSync } from './progressSync'
 
@@ -70,7 +71,8 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       webviewTag: true,
-      plugins: true
+      plugins: true,
+      backgroundThrottling: false
     }
   })
 
@@ -130,6 +132,7 @@ app.whenReady().then(() => {
   initStore()
   registerIpc()
   createWindow()
+  if (mainWindow) initDisguise(mainWindow)
   startupLog('createWindow called')
 
   // 局域网同步服务：上次若为开启状态则自动恢复
@@ -141,6 +144,7 @@ app.whenReady().then(() => {
   app.on('before-quit', () => {
     stopProgressSync()
     void stopLanSync()
+    void stopDisguiseOnQuit()
   })
 
   // 老板键 Alt+C：隐藏/显示窗口

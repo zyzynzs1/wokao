@@ -52,6 +52,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   localStudyDir: 'D:\\BaiduNetdiskDownload\\shenlun',
   provider: 'zhipu',
   answerLayout: 'vertical',
+  disguiseStartHotkey: 'Alt+W',
+  disguiseFinishHotkey: 'Alt+F',
   deepseek: {
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     model: 'glm-4-flash-250414',

@@ -57,6 +57,25 @@ export interface GradingMigrationResult {
   error?: string
 }
 
+export interface DisguiseQuestionMeta {
+  id: string
+  title: string
+  requirement: string
+  wordLimit: number
+}
+
+export interface DisguiseStartInput {
+  material: string
+  questions: DisguiseQuestionMeta[]
+  answers: Record<string, string>
+}
+
+export interface DisguiseResult {
+  ok: boolean
+  answers?: Record<string, string>
+  error?: string
+}
+
 export interface Api {
   ensureDefaultUser: () => Promise<SafeUser>
 
@@ -112,6 +131,12 @@ export interface Api {
   getSettings: () => Promise<AppSettings>
   updateSettings: (next: AppSettings) => Promise<AppSettings>
   testConnection: () => Promise<{ ok: boolean; message: string }>
+
+  // 伪装模式（真实 WPS 单文档作答）
+  disguiseStart: (input: DisguiseStartInput) => Promise<{ ok: boolean; error?: string }>
+  disguiseFinish: () => Promise<DisguiseResult>
+  disguiseAbort: () => Promise<{ ok: boolean; error?: string }>
+  refreshDisguiseShortcuts: () => Promise<void>
 
   // 评分 v2：历史记录迁移（旧分保存到 legacy，再按新标准重评）
   getGradingMigrationInfo: () => Promise<GradingMigrationInfo>

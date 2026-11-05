@@ -47,6 +47,8 @@ export default function SettingsPage(): JSX.Element {
   const [province, setProvince] = useState('辽宁')
   const [localStudyDir, setLocalStudyDir] = useState('')
   const [answerLayout, setAnswerLayout] = useState<AnswerLayout>('vertical')
+  const [disguiseStartHotkey, setDisguiseStartHotkey] = useState('Alt+W')
+  const [disguiseFinishHotkey, setDisguiseFinishHotkey] = useState('Alt+F')
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [message, setMessage] = useState('')
@@ -86,6 +88,8 @@ export default function SettingsPage(): JSX.Element {
       setProvince(s.province ?? '辽宁')
       setLocalStudyDir(s.localStudyDir ?? '')
       setAnswerLayout(s.answerLayout ?? 'vertical')
+      setDisguiseStartHotkey(s.disguiseStartHotkey ?? 'Alt+W')
+      setDisguiseFinishHotkey(s.disguiseFinishHotkey ?? 'Alt+F')
       setGrading(
         s.grading ?? {
           secondPass: 'same-model',
@@ -129,6 +133,8 @@ export default function SettingsPage(): JSX.Element {
       syncDir: settings.syncDir ?? '',
       provider: providerId,
       answerLayout,
+      disguiseStartHotkey: disguiseStartHotkey.trim() || 'Alt+W',
+      disguiseFinishHotkey: disguiseFinishHotkey.trim() || 'Alt+F',
       deepseek: { baseUrl: baseUrl.trim(), model: model.trim(), apiKey: apiKey.trim() },
       grading
     }
@@ -338,6 +344,29 @@ export default function SettingsPage(): JSX.Element {
                 <span className="layout-option-desc">资料在左，作答在右并对齐</span>
               </button>
             </div>
+          </div>
+          <div className="settings-field">
+            <label>伪装模式快捷键（WPS 单文档作答）</label>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <input
+                className="input"
+                value={disguiseStartHotkey}
+                onChange={(e) => setDisguiseStartHotkey(e.target.value)}
+                placeholder="进入：Alt+W"
+                style={{ flex: '1 1 180px' }}
+              />
+              <input
+                className="input"
+                value={disguiseFinishHotkey}
+                onChange={(e) => setDisguiseFinishHotkey(e.target.value)}
+                placeholder="完成：Alt+F"
+                style={{ flex: '1 1 180px' }}
+              />
+            </div>
+            <p className="settings-hint">
+              进入后会隐藏 wokao 并打开 WPS 中的中性标题文档；完成作答可再按完成快捷键或右键托盘图标。
+              快捷键修改后点下方“保存设置”生效。
+            </p>
           </div>
         </div>
       </div>

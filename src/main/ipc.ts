@@ -20,6 +20,7 @@ import { filterByBand, findBand, inBand } from '../shared/difficulty'
 import { filterByTopic } from '../shared/topics'
 import { generateQuestion, testConnection } from './llm'
 import type { QuestionSpec } from './llm'
+import { refreshDisguiseShortcuts } from './disguise'
 import { gradeQuestion } from './grading'
 import { getGradingMigrationInfo, runGradingMigration } from './gradingMigration'
 import { getLanSyncInfo, regenerateSyncToken, startLanSync, stopLanSync } from './lanSync'
@@ -506,6 +507,7 @@ export function registerIpc(): void {
   ipcMain.handle('settings:get', () => getSettings())
   ipcMain.handle('settings:update', (_e, next) => {
     updateSettings(next)
+    refreshDisguiseShortcuts()
     return getSettings()
   })
   ipcMain.handle('settings:test', () => testConnection(getSettings().deepseek))

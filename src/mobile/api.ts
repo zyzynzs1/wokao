@@ -826,5 +826,10 @@ export const mobileApi: Api = {
   openProgressSyncDir: async () => ({
     ok: false,
     error: '手机端不支持云盘文件夹同步，请在电脑端使用'
-  })
+  }),
+
+  disguiseStart: async () => ({ ok: false, error: '手机端不支持 WPS 伪装模式' }),
+  disguiseFinish: async () => ({ ok: false, error: '手机端不支持 WPS 伪装模式' }),
+  disguiseAbort: async () => ({ ok: false, error: '手机端不支持 WPS 伪装模式' }),
+  refreshDisguiseShortcuts: async () => {}
 }

@@ -40,6 +40,11 @@ const api: Api = {
   updateSettings: (next) => ipcRenderer.invoke('settings:update', next),
   testConnection: () => ipcRenderer.invoke('settings:test'),
 
+  disguiseStart: (input) => ipcRenderer.invoke('disguise:start', input),
+  disguiseFinish: () => ipcRenderer.invoke('disguise:finish'),
+  disguiseAbort: () => ipcRenderer.invoke('disguise:abort'),
+  refreshDisguiseShortcuts: () => ipcRenderer.invoke('disguise:refreshShortcuts'),
+
   // 评分 v2 历史迁移
   getGradingMigrationInfo: () => ipcRenderer.invoke('grading:migrationInfo'),
   runGradingMigration: () => ipcRenderer.invoke('grading:runMigration'),
@@ -78,5 +83,33 @@ contextBridge.exposeInMainWorld('windowEvents', {
   onFocused: (cb: () => void) => {
     ipcRenderer.on('window:focused', cb)
     return () => ipcRenderer.removeListener('window:focused', cb)
+  }
+})
+
+contextBridge.exposeInMainWorld('disguiseEvents', {
+  onAutosave: (cb: (answers: Record<string, string>) => void) => {
+    const listener = (_e: unknown, answers: Record<string, string>): void => cb(answers)
+    ipcRenderer.on('disguise:autosave', listener)
+    return () => ipcRenderer.removeListener('disguise:autosave', listener)
+  },
+  onFinished: (cb: (answers: Record<string, string>) => void) => {
+    const listener = (_e: unknown, answers: Record<string, string>): void => cb(answers)
+    ipcRenderer.on('disguise:finished', listener)
+    return () => ipcRenderer.removeListener('disguise:finished', listener)
+  },
+  onAborted: (cb: () => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on('disguise:aborted', listener)
+    return () => ipcRenderer.removeListener('disguise:aborted', listener)
+  },
+  onRequestStart: (cb: () => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on('disguise:request-start', listener)
+    return () => ipcRenderer.removeListener('disguise:request-start', listener)
+  },
+  onError: (cb: (message: string) => void) => {
+    const listener = (_e: unknown, message: string): void => cb(message)
+    ipcRenderer.on('disguise:error', listener)
+    return () => ipcRenderer.removeListener('disguise:error', listener)
   }
 })
