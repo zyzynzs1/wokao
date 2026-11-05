@@ -100,25 +100,43 @@ Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
 public static class WpsWin {
+  public delegate bool EnumChildProc(IntPtr hWnd, IntPtr lParam);
   [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd,int x,int y,int w,int ht,bool repaint);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd,int nCmdShow);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumChildProc cb, IntPtr l);
+  [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr h, System.Text.StringBuilder s, int n);
+  [DllImport("user32.dll")] public static extern int GetClassName(IntPtr h, System.Text.StringBuilder s, int n);
 }
 "@
 function Show-WpsDocumentWindow($doc) {
-  try {
-    # WPS 的文档窗口是 MDI 子窗口，必须最大化子窗口，否则会缩在左上角。
-    if ($doc.Windows.Count -gt 0) {
-      $doc.Windows.Item(1).WindowState = 1
-      $doc.Windows.Item(1).Activate()
-    }
-  } catch {}
   try {
     $proc = Get-Process wps -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like "*$($doc.Name)*" } | Select-Object -First 1
     if ($proc -and $proc.MainWindowHandle -ne 0) {
       [void][WpsWin]::ShowWindow($proc.MainWindowHandle, 9)
       [void][WpsWin]::MoveWindow($proc.MainWindowHandle, 80, 60, 1200, 760, $true)
       [void][WpsWin]::SetForegroundWindow($proc.MainWindowHandle)
+      # 用 Win32 最大化 WPS 的 MDI 文档子窗口，避免走 COM WindowState 造成阻塞。
+      $script:wpsChild = [IntPtr]::Zero
+      $name = $doc.Name
+      $cb = [WpsWin+EnumChildProc]{
+        param($hChild, $lParam)
+        try {
+          $title = New-Object System.Text.StringBuilder 512
+          [void][WpsWin]::GetWindowText($hChild, $title, 512)
+          $cls = New-Object System.Text.StringBuilder 128
+          [void][WpsWin]::GetClassName($hChild, $cls, 128)
+          if ($cls.ToString() -eq '_WwB' -and $title.ToString() -like "*$name*") {
+            $script:wpsChild = $hChild
+            return $false
+          }
+        } catch {}
+        return $true
+      }
+      [void][WpsWin]::EnumChildWindows($proc.MainWindowHandle, $cb, [IntPtr]::Zero)
+      if ($script:wpsChild -ne [IntPtr]::Zero) {
+        [void][WpsWin]::ShowWindow($script:wpsChild, 3)
+      }
     }
   } catch {}
 }
@@ -153,10 +171,10 @@ try {
     try { $doc.Content.Font.Name = '宋体'; $doc.Content.Font.Size = 11 } catch {}
     $doc.SaveAs([ref]$DocPath)
     $doc.Activate()
-    try { $app.ActiveWindow.WindowState = 0; $app.ActiveWindow.Activate() } catch {}
-    Show-WpsDocumentWindow $doc
     $app.StatusBar = '伪装模式已就绪'
+    # 先告诉主进程“文档已创建”，再做窗口置前/最大化，避免 WPS 窗口操作卡住时按钮一直停在“伪装中”。
     Write-Result @{ ok = $true; ready = $true; docPath = $DocPath }
+    Show-WpsDocumentWindow $doc
     [Console]::InputEncoding = [System.Text.Encoding]::UTF8
     while ($true) {
       $line = [Console]::In.ReadLine()
@@ -184,7 +202,6 @@ try {
     try { $doc.Content.Font.Name = '宋体'; $doc.Content.Font.Size = 11 } catch {}
     $doc.SaveAs([ref]$DocPath)
     $doc.Activate()
-    try { $app.ActiveWindow.WindowState = 0; $app.ActiveWindow.Activate() } catch {}
     Show-WpsDocumentWindow $doc
     Write-Result @{ ok = $true; docPath = $DocPath }
   } elseif ($Action -eq 'read') {
