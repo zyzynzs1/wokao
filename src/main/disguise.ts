@@ -97,6 +97,13 @@ public static class WpsWin {
 "@
 function Show-WpsDocumentWindow($doc) {
   try {
+    # WPS 的文档窗口是 MDI 子窗口，必须最大化子窗口，否则会缩在左上角。
+    if ($doc.Windows.Count -gt 0) {
+      $doc.Windows.Item(1).WindowState = 1
+      $doc.Windows.Item(1).Activate()
+    }
+  } catch {}
+  try {
     $proc = Get-Process wps -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like "*$($doc.Name)*" } | Select-Object -First 1
     if ($proc -and $proc.MainWindowHandle -ne 0) {
       [void][WpsWin]::ShowWindow($proc.MainWindowHandle, 9)
