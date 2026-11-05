@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import type { AnswerLayout, HighlightMark, PracticeSession, Question } from '../../../shared/types'
 import type { DisguiseStartInput } from '../../../shared/api'
+import { splitMaterialSections } from '../components/materialSections'
 import { difficultyLabel } from '../../../shared/difficulty'
 import LinedPaper from '../components/LinedPaper'
 import MarkableText, { MARK_COLORS } from '../components/MarkableText'
@@ -258,8 +259,20 @@ export default function AnswerPage(): JSX.Element {
           : longest,
       ''
     )
+    // 整卷时取材料最长的那道题（通常是大作文），按同卷题目边界拆成材料一、二……
+    const materialQuestion = questions.reduce(
+      (longest, q) =>
+        (q.material ?? '').replace(/\s/g, '').length > (longest.material ?? '').replace(/\s/g, '').length
+          ? q
+          : longest,
+      questions[0]
+    )
+    const sections = materialQuestion
+      ? splitMaterialSections(materialQuestion, questions).map((s) => ({ title: s.title, text: s.text }))
+      : []
     return {
       material,
+      materialSections: sections.some((s) => s.title) ? sections : undefined,
       questions: questions.map((q) => ({
         id: q.id,
         title: q.title,

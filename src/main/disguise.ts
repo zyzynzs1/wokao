@@ -63,7 +63,17 @@ function buildDocumentText(input: DisguiseStartInput): string {
   lines.push('目录', '  参考材料')
   input.questions.forEach((_, i) => lines.push(`  第${i + 1}题作答区`))
   lines.push('', '一、参考材料', '')
-  lines.push(input.material || '（暂无材料）', '')
+  const sections = input.materialSections?.filter((s) => (s.text || '').trim()) ?? []
+  if (sections.length > 0) {
+    sections.forEach((section, i) => {
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+      lines.push(`【${section.title || `材料${i + 1}`}】`)
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', '')
+      lines.push(section.text.trim(), '')
+    })
+  } else {
+    lines.push(input.material || '（暂无材料）', '')
+  }
   lines.push('二、作答题目', '')
   input.questions.forEach((q, i) => {
     const n = i + 1

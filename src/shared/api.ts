@@ -64,8 +64,14 @@ export interface DisguiseQuestionMeta {
   wordLimit: number
 }
 
+export interface DisguiseMaterialSection {
+  title: string
+  text: string
+}
+
 export interface DisguiseStartInput {
   material: string
+  materialSections?: DisguiseMaterialSection[]
   questions: DisguiseQuestionMeta[]
   answers: Record<string, string>
 }
