@@ -1,8 +1,9 @@
 import type { Question } from '../../shared/types'
 import { withDifficulty, type QuestionCore } from '../../shared/difficulty'
+import { applyEssayMaterialOverrides } from './essayMaterialOverrides'
 
 // 内置练习题：覆盖申论五大题型，按国考副省级 / 地市级 / 行政执法与辽宁省考分类。
-// 每道题的给定资料按真实申论体量编写（单题 1600—2000 字，大作文 2200—2800 字），
+// 每道题的给定资料按真实申论体量编写（单题 1600—2000 字；大作文国考约 7000—8000 字、省考约 6000—7000 字，5—7 则材料），
 // 材料以案例叙述为主，要点需概括分析得出，参考答案与采分点用于练习评分。
 
 const seedQuestionList: QuestionCore[] = [
@@ -471,4 +472,4 @@ const seedQuestionList: QuestionCore[] = [
   }
 ]
 
-export const seedQuestions: Question[] = withDifficulty(seedQuestionList)
+export const seedQuestions: Question[] = withDifficulty(seedQuestionList).map(applyEssayMaterialOverrides)

@@ -543,6 +543,11 @@ export async function generateQuestion(
   const pointsInfo = isEssay
     ? '本题为大作文，不设采分点，请改为给出「一类文/二类文/三类文/四类文」四档划档标准，每档写明分数区间与特征描述。'
     : `请给出 ${TYPE_POINT_RANGE[type]} 个给分点，每个给分点必须写明：要点名称（label）、判定关键词（keywords，2-4 个近义或原词）、本题分值（score）；各给分点分值之和必须等于本题满分。`
+  const materialRequirement = isEssay
+    ? examType === '国考'
+      ? '7000—8000 字，按 5—7 则材料编排'
+      : '6000—7000 字，按 5—6 则材料编排'
+    : '1500—2500 字'
 
   const userPrompt = `【本次命题参数（必须严格遵守）】
 - 考试类型与类别：${examLine}
@@ -560,8 +565,8 @@ ${
 ${leafTopicPaths().join('\n')}
 
 【材料要求】
-- 围绕一个真实、具体的社会 / 治理 / 发展话题，编写给定资料：小题合计 1500—2500 字，大作文 2200—3000 字，分 4—6 段。
-- 采用真实申论材料的写法：具体地区、人物、场景、数据、群众与专家观点、政策表述，以叙事为主；避免“一是……二是……”式的要点罗列，也不要直接写出结论性要点，要点须由材料概括或分析得出。
+- 围绕一个真实、具体的社会 / 治理 / 发展话题，编写给定资料：${materialRequirement}。
+${isEssay ? '- 大作文的给定资料必须是完整整卷材料，从“材料一”“材料二”……依次编排；不得只写一则材料、只写摘要，或把题干中的一句话扩写成材料。\n' : ''}- 采用真实申论材料的写法：具体地区、人物、场景、数据、群众与专家观点、政策表述，以叙事为主；避免“一是……二是……”式的要点罗列，也不要直接写出结论性要点，要点须由材料概括或分析得出。
 - 材料须自洽、可信，不得出现“略”“……”等占位。
 
 【题干与作答要求】
@@ -613,7 +618,7 @@ ${
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
     ],
-    { temperature: 0.8, json: true, maxTokens: 8000 }
+    { temperature: 0.8, json: true, maxTokens: isEssay ? 16000 : 8000 }
   )
   const parsed = extractJson(raw) as Record<string, unknown> | null
   if (!parsed) return null
@@ -685,7 +690,17 @@ ${
     const pointsSum = core.scoringPoints.reduce((s, p) => s + p.score, 0)
     if (pointsSum !== core.score) return null
   }
-  if (core.material.replace(/\s/g, '').length < 600) return null
+  const materialChars = core.material.replace(/\s/g, '').length
+  if (isEssay) {
+    // 真实国考/省考大作文是整卷材料，不能再用 2000—3000 字的“单则材料”冒充。
+    const minMaterial = examType === '国考' ? 6500 : 5500
+    const maxMaterial = examType === '国考' ? 9000 : 8000
+    const materialCount = (core.material.match(/材料[一二三四五六七八九十]+/g) ?? []).length
+    if (materialChars < minMaterial || materialChars > maxMaterial) return null
+    if (materialCount < 5) return null
+  } else if (materialChars < 600) {
+    return null
+  }
 
   return {
     ...core,
@@ -693,7 +708,7 @@ ${
     referenceSource: 'ai',
     generationMeta: {
       model: deepseek.model,
-      promptVersion: 'question-generation-v2.0',
+      promptVersion: 'question-generation-v3.0',
       createdAt: Date.now(),
       validated: true,
       warnings: warnings.length > 0 ? warnings : undefined
