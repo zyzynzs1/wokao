@@ -340,8 +340,55 @@ const seedRealQuestionList: QuestionCore[] = [
   ...gkQuestions
 ]
 
+// 部分整卷大作文材料是各题材料直接拼接的，原文没有“材料一/二”标题。
+// 这里按同卷其他题的材料边界补上标题，保证知识点练习只打开一篇大作文时也能分则显示 tab。
+const CN_NUM = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
+const HEADING_RE = /(^|\n)[ \t]*(?:给定资料|材料)[ \t]*[一二三四五六七八九十百\d]+[ \t]*(?:[：:、.．])?[ \t]*(?=\n|$)/
+
+function withEssayMaterialHeadings(q: QuestionCore, group: QuestionCore[]): QuestionCore {
+  if (q.type !== '文章论述' || HEADING_RE.test(q.material)) return q
+  const siblings = group.filter((other) => other.id !== q.id && other.material?.trim())
+  if (siblings.length === 0) return q
+
+  const starts = new Set<number>([0])
+  let cursor = 0
+  for (const sibling of siblings) {
+    const idx = q.material.indexOf(sibling.material, cursor)
+    if (idx < 0) continue
+    starts.add(idx)
+    cursor = idx + sibling.material.length
+  }
+  if (cursor > 0 && cursor < q.material.length) starts.add(cursor)
+  const ordered = [...starts].sort((a, b) => a - b)
+  if (ordered.length < 2) return q
+
+  let material = q.material
+  for (let i = ordered.length - 1; i >= 0; i--) {
+    const at = ordered[i]
+    const prefix = at === 0 || material[at - 1] === '\n' ? '' : '\n'
+    material =
+      material.slice(0, at) +
+      `${prefix}材料${CN_NUM[i] ?? String(i + 1)}\n\n` +
+      material.slice(at)
+  }
+  return { ...q, material }
+}
+
+const essayGroups = new Map<string, QuestionCore[]>()
+for (const q of seedRealQuestionList) {
+  const key = q.source ?? ''
+  const list = essayGroups.get(key) ?? []
+  list.push(q)
+  essayGroups.set(key, list)
+}
+const normalizedRealQuestionList = seedRealQuestionList.map((q) =>
+  q.type === '文章论述' ? withEssayMaterialHeadings(q, essayGroups.get(q.source ?? '') ?? []) : q
+)
+
 // 统一按题型、分值、字数、材料长度等推导难度（0-10）
-export const seedRealQuestions: Question[] = withDifficulty(seedRealQuestionList).map(applyEssayMaterialOverrides)
+export const seedRealQuestions: Question[] = withDifficulty(normalizedRealQuestionList).map(
+  applyEssayMaterialOverrides
+)
 
 export const seedRealPapers: Paper[] = [
   ...gkPapers,
