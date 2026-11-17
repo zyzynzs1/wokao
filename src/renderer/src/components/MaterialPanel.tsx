@@ -47,22 +47,26 @@ export default function MaterialPanel({
       )
       .map((m) => ({ ...m, start: m.start - section.offset, end: m.end - section.offset }))
 
-  const renderSection = (section: MaterialSection): JSX.Element => (
-    <div className="answer-material-section" key={section.offset}>
+  const renderSection = (section: MaterialSection, index: number): JSX.Element => (
+    <div className="answer-material-block" key={section.offset}>
       {sections.length > 1 && active === 'all' && (
-        <div className="answer-material-section-title">{section.title}</div>
+        <div className={`answer-material-divider${index === 0 ? ' first' : ''}`}>
+          <span>{section.title}</span>
+        </div>
       )}
-      <MarkableText
-        text={section.text}
-        field="material"
-        marks={sectionMarks(section)}
-        editable={editable}
-        color={color}
-        onMark={(s, e, c) => onMark('material', section.offset + s, section.offset + e, c)}
-        onUnmark={(s, e) => onUnmark('material', section.offset + s, section.offset + e)}
-        onNote={(s, e, n) => onNote('material', section.offset + s, section.offset + e, n)}
-        onRemove={(s, e) => onRemove('material', section.offset + s, section.offset + e)}
-      />
+      <div className="answer-material-section">
+        <MarkableText
+          text={section.text}
+          field="material"
+          marks={sectionMarks(section)}
+          editable={editable}
+          color={color}
+          onMark={(s, e, c) => onMark('material', section.offset + s, section.offset + e, c)}
+          onUnmark={(s, e) => onUnmark('material', section.offset + s, section.offset + e)}
+          onNote={(s, e, n) => onNote('material', section.offset + s, section.offset + e, n)}
+          onRemove={(s, e) => onRemove('material', section.offset + s, section.offset + e)}
+        />
+      </div>
     </div>
   )
 
@@ -77,7 +81,7 @@ export default function MaterialPanel({
               className={`answer-material-tab${active === 'all' ? ' active' : ''}`}
               onClick={() => setActive('all')}
             >
-              全部材料
+              全部给定资料
             </button>
             {sections.map((s, i) => (
               <button
@@ -93,7 +97,7 @@ export default function MaterialPanel({
         )}
       </div>
       <div className="answer-material-body">
-        {visible.map((section) => renderSection(section))}
+        {visible.map((section, index) => renderSection(section, index))}
       </div>
     </div>
   )

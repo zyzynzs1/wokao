@@ -6,9 +6,6 @@ export interface MaterialSection {
   offset: number
 }
 
-const CN_NUM = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
-const cn = (n: number): string => CN_NUM[n - 1] ?? String(n)
-
 function trimSection(full: string, start: number, end: number): MaterialSection | null {
   const raw = full.slice(start, end)
   const text = raw.trim()
@@ -17,9 +14,30 @@ function trimSection(full: string, start: number, end: number): MaterialSection 
   return { title: '', text, offset: start + leading }
 }
 
+// 兼容「材料一 / 材料1 / 给定资料一 / 给定资料1」等真题和整理稿写法。
+// 只识别位于行首的标题，避免把正文中的“根据给定资料1”误判为分则。
+const HEADING_RE = /(^|\r?\n)[ \t]*(?:给定资料|材料)[ \t]*([一二三四五六七八九十百\d]+)[ \t]*(?:[：:、.．])?[ \t]*(?=\r?\n|$)/g
+
+interface HeadingMatch {
+  index: number
+  end: number
+}
+
+function findHeadings(full: string): HeadingMatch[] {
+  const matches: HeadingMatch[] = []
+  let m: RegExpExecArray | null
+  HEADING_RE.lastIndex = 0
+  while ((m = HEADING_RE.exec(full)) !== null) {
+    matches.push({ index: m.index, end: m.index + m[0].length })
+  }
+  return matches
+}
+
 /**
- * 大作文/全卷材料：优先按同卷前面几题的材料边界，把当前材料拆成多则。
- * 拆分不上时退回单段材料，不显示 tab，保证不会因为推断失败而少显示内容。
+ * 给定资料拆分：
+ * 1. 优先按材料正文里的「材料一 / 给定资料1」标题分则；
+ * 2. 若整卷材料没有标题，但存在同卷其他题目材料，则按同卷材料边界兜底；
+ * 3. 仍无法拆分时退回单段，保证内容不丢失。
  */
 export function splitMaterialSections(
   question: Question,
@@ -27,14 +45,32 @@ export function splitMaterialSections(
 ): MaterialSection[] {
   const full = question.material ?? ''
   if (!full) return []
+
   const fallback = (): MaterialSection[] => {
     const one = trimSection(full, 0, full.length)
     return one ? [one] : []
   }
+
+  // 1) 标题式分则（小题、整卷材料都适用）
+  const headings = findHeadings(full)
+  if (headings.length >= 2) {
+    const sections: MaterialSection[] = []
+    headings.forEach((heading, i) => {
+      const end = headings[i + 1]?.index ?? full.length
+      const section = trimSection(full, heading.end, end)
+      if (section) {
+        sections.push({ ...section, title: `给定资料${i + 1}` })
+      }
+    })
+    if (sections.length >= 2) return sections
+  }
+
+  // 2) 旧数据兜底：整卷大作文材料由同卷各题材料拼接，按边界拆分
+  if (question.type !== '文章论述') return fallback()
   const others = allQuestions.filter(
     (q) => q.id !== question.id && q.material && q.material.trim()
   )
-  if (question.type !== '文章论述' || others.length === 0) return fallback()
+  if (others.length === 0) return fallback()
 
   const ranges: { start: number; end: number }[] = []
   let cursor = 0
@@ -51,5 +87,5 @@ export function splitMaterialSections(
     .map((r) => trimSection(full, r.start, r.end))
     .filter((s): s is MaterialSection => !!s)
   if (sections.length < 2) return fallback()
-  return sections.map((s, i) => ({ ...s, title: `材料${cn(i + 1)}` }))
+  return sections.map((s, i) => ({ ...s, title: `给定资料${i + 1}` }))
 }

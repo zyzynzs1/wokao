@@ -37,10 +37,38 @@
   color: var(--primary);
   font-weight: 600;
 }
+.answer-material-block + .answer-material-block {
+  margin-top: 4px;
+}
 .answer-material-section + .answer-material-section {
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px dashed #dfe3e8;
+}
+/* 「全部给定资料」里的分则分隔符：中间显示给定资料序号 */
+.answer-material-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.answer-material-divider::before,
+.answer-material-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #d8dee6);
+}
+.answer-material-divider::after {
+  background: linear-gradient(90deg, #d8dee6, transparent);
+}
+.answer-material-divider.first {
+  margin-top: 2px;
 }
 .answer-material-section-title {
   margin-bottom: 6px;
